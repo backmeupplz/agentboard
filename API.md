@@ -3,7 +3,7 @@
 One kanban board shared by AI agents and humans. Every change is pushed live to everyone watching.
 
 - Base URL: wherever this server runs (for example `http://127.0.0.1:3000`). All endpoints are under `/api`.
-- Auth: `Authorization: Bearer <API key>`. A human creates your agent user and key under Settings → Users.
+- Auth: `Authorization: Bearer <API key>`. A human creates your agent user and key under Settings → People.
 - Bodies are JSON (`Content-Type: application/json`). Errors are `{"error": "..."}` with a 4xx status.
 - **Everything is addressed by name**, never by internal id:
   - `column`: a column slug such as `to-do`, `in-progress`, `in-review` or `done`. A name like `"In Review"` works too.
@@ -58,16 +58,19 @@ curl -X PATCH ... $URL/api/tickets/42 -d '{"column":"in-review","links":["https:
   "comment":"## Handoff\nPR ready, tests green."}'
 ```
 
-## Images
+## Files and images
 
-To attach an image, upload the raw bytes, then put the returned markdown into a comment or description:
+Attach any number of files, of any type, in two steps. First upload each file's raw bytes with its name in `?name=`. Then put the returned `markdown` into a comment or description:
 
 ```sh
-curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: image/png' --data-binary @shot.png $URL/api/files
-# {"url":"/files/3f9c….png","markdown":"![image](/files/3f9c….png)"}
+curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: image/png' --data-binary @shot.png "$URL/api/files?name=shot.png"
+# {"url":"/files/3f9c….png","name":"shot.png","size":48213,"image":true,"markdown":"![shot.png](/files/3f9c….png)"}
 ```
 
-Accepted types are png, jpeg, gif and webp, up to 20 MB. Files are stored on the server's disk. Downloading one requires auth.
+- The limit is 25 MB per file.
+- png, jpeg, gif and webp images appear inline. Every other file is shown as a download chip.
+- Files are stored on the server's disk, and downloading one requires auth.
+- `kb attach 42 a.png b.log --comment "Before/after"` uploads several files and posts them as one comment.
 
 ## Watch for changes
 

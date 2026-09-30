@@ -13,9 +13,11 @@ const PUBLIC = path.join(ROOT, 'public')
 const DATA = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'))
 const FILES = path.join(DATA, 'files')
 const SESSION_MS = 90 * 864e5
-const IMAGE_TYPES = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' }
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8',
-  '.svg': 'image/svg+xml', ...Object.fromEntries(Object.entries(IMAGE_TYPES).map(([k, v]) => [v, k])) }
+const MAX_UPLOAD = 25 << 20
+// Only these are ever shown inline; every other upload is served as a download.
+const INLINE_IMAGES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml', ...INLINE_IMAGES }
 fs.mkdirSync(FILES, { recursive: true })
 
 const db = new DatabaseSync(path.join(DATA, 'board.db'))
@@ -35,6 +37,8 @@ CREATE INDEX IF NOT EXISTS tickets_updated ON tickets(updated_at);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ticket_id INTEGER REFERENCES tickets ON DELETE CASCADE,
   user_id INTEGER REFERENCES users ON DELETE SET NULL, type TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS events_ticket ON events(ticket_id, id);
+CREATE TABLE IF NOT EXISTS files(name TEXT PRIMARY KEY, original TEXT NOT NULL, size INTEGER NOT NULL,
+  user_id INTEGER REFERENCES users ON DELETE SET NULL, created_at INTEGER NOT NULL);
 `)
 const stmts = new Map()
 const q = sql => stmts.get(sql) ?? stmts.set(sql, db.prepare(sql)).get(sql)
@@ -47,7 +51,9 @@ class HttpError extends Error { constructor(status, msg) { super(msg); this.stat
 const need = (ok, status, msg) => { if (!ok) throw new HttpError(status, msg) }
 const sha = s => createHash('sha256').update(s).digest('hex')
 const hashPass = p => { const salt = randomBytes(16).toString('hex'); return salt + ':' + scryptSync(p, salt, 32).toString('hex') }
-const checkPass = (p, stored) => { const [salt, h] = String(stored).split(':'); return !!h && timingSafeEqual(scryptSync(p, salt, 32), Buffer.from(h, 'hex')) }
+const DUMMY_HASH = hashPass(randomBytes(8).toString('hex'))
+// Always runs scrypt, so response time doesn't reveal whether the email exists.
+const checkPass = (p, stored) => { const [salt, h] = String(stored || DUMMY_HASH).split(':'); return timingSafeEqual(scryptSync(p, salt, 32), Buffer.from(h, 'hex')) && !!stored }
 const newKey = () => 'ab_' + randomBytes(24).toString('base64url')
 const iso = ms => ms == null ? null : new Date(ms).toISOString()
 const text = (v, name, max, required) => {
@@ -81,10 +87,12 @@ const addEvent = (ticketId, user, type, body = '') =>
 const loadEvents = ids => ids.map(id => eventOut(q(EVENT_SQL + ' WHERE e.id=?').get(id)))
 
 // --- realtime: every change is pushed to every open /api/stream
-const streams = new Set()
-const emit = msg => { const s = `data: ${JSON.stringify(msg)}\n\n`; for (const res of streams) res.write(s) }
+const streams = new Map() // res -> { userId, cred }
+const emit = msg => { const s = `data: ${JSON.stringify(msg)}\n\n`; for (const res of streams.keys()) res.write(s) }
+// Cut live streams whose credential was revoked (key rotated, user deleted, logged out).
+const dropStreams = match => { for (const [res, who] of streams) if (match(who)) { streams.delete(res); res.end() } }
 const emitTicket = (id, eventIds) => emit({ type: 'ticket', id, ticket: getTicket(id, false) ?? null, events: loadEvents(eventIds) })
-setInterval(() => { for (const res of streams) res.write(': ping\n\n') }, 25e3).unref()
+setInterval(() => { for (const res of streams.keys()) res.write(': ping\n\n') }, 25e3).unref()
 
 function filters(query, me) {
   const where = [], args = []
@@ -167,24 +175,42 @@ function updateTicket(id, b, me) {
 
 // --- users, auth
 const userOut = (u, me) => ({ name: u.name, kind: u.kind, ...(me.kind === 'human' && { email: u.email }), has_key: !!u.key_hash, created_at: iso(u.created_at) })
+const sessionToken = req => /(?:^|;\s*)ab_session=([^;]+)/.exec(req.headers.cookie || '')?.[1]
 function authUser(req) {
   const h = req.headers.authorization
-  if (h?.startsWith('Bearer ')) return q('SELECT * FROM users WHERE key_hash=?').get(sha(h.slice(7).trim()))
-  const tok = /(?:^|;\s*)ab_session=([^;]+)/.exec(req.headers.cookie || '')?.[1]
-  if (tok) return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.created_at>?').get(sha(tok), Date.now() - SESSION_MS)
+  if (h?.startsWith('Bearer ')) {
+    const u = q('SELECT * FROM users WHERE key_hash=?').get(sha(h.slice(7).trim()))
+    return u && { ...u, cred: 'key' }
+  }
+  const tok = sessionToken(req)
+  const u = tok && q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.created_at>?').get(sha(tok), Date.now() - SESSION_MS)
+  return u && { ...u, cred: 'session:' + sha(tok) }
 }
-function login(res, user) {
+function login(req, res, user) {
   const tok = randomBytes(32).toString('base64url')
+  q('DELETE FROM sessions WHERE created_at<?').run(Date.now() - SESSION_MS)
   q('INSERT INTO sessions VALUES (?,?,?)').run(sha(tok), user.id, Date.now())
-  res.setHeader('Set-Cookie', `ab_session=${tok}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}`)
+  const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+  res.setHeader('Set-Cookie', `ab_session=${tok}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MS / 1000}${secure}`)
 }
+// ponytail: in-memory limiter, resets on restart; fine for one process
+const failures = new Map()
+const LOGIN_WINDOW = 15 * 60e3, LOGIN_MAX = 10
+function loginAllowed(ip) {
+  const f = failures.get(ip)
+  if (f && Date.now() - f.since > LOGIN_WINDOW) failures.delete(ip)
+  return (failures.get(ip)?.n ?? 0) < LOGIN_MAX
+}
+const loginFailed = ip => { const f = failures.get(ip) ?? { n: 0, since: Date.now() }; f.n++; failures.set(ip, f) }
+// A fresh install needs this token (printed at startup) to create the owner, so nobody else can claim it first.
+let setupToken = q('SELECT 1 FROM users').get() ? null : randomBytes(16).toString('hex')
 function createUser(b) {
   need(['human', 'agent'].includes(b.kind), 400, 'kind must be "human" or "agent"')
   const name = text(b.name, 'name', 64, true)
   need(/^[\w.-]+$/.test(name) && !['me', 'none'].includes(name.toLowerCase()), 400, 'name may contain letters, digits, _ . - only')
   if (b.kind === 'human') {
-    need(typeof b.email === 'string' && /^\S+@\S+$/.test(b.email), 400, 'valid email required')
-    need(typeof b.password === 'string' && b.password.length >= 8, 400, 'password must be at least 8 chars')
+    need(typeof b.email === 'string' && b.email.length <= 254 && /^[^\s@]+@[^\s@]+$/.test(b.email), 400, 'valid email required')
+    need(typeof b.password === 'string' && b.password.length >= 8 && b.password.length <= 256, 400, 'password must be 8-256 chars')
     q('INSERT INTO users(kind,name,email,pass,created_at) VALUES (?,?,?,?,?)').run('human', name, b.email, hashPass(b.password), Date.now())
     return { user: q('SELECT * FROM users WHERE name=?').get(name) }
   }
@@ -196,7 +222,7 @@ function createUser(b) {
 // --- http plumbing
 const readBody = (req, max) => new Promise((resolve, reject) => {
   const chunks = []; let size = 0
-  req.on('data', c => { size += c.length; if (size > max) { reject(new HttpError(413, `body over ${max} bytes`)); req.destroy() } else chunks.push(c) })
+  req.on('data', c => { size += c.length; if (size > max) { req.pause(); reject(new HttpError(413, `body over ${max} bytes`)) } else chunks.push(c) })
   req.on('end', () => resolve(Buffer.concat(chunks))); req.on('error', reject)
 })
 const json = async req => {
@@ -216,16 +242,23 @@ const ticketParam = s => { const n = +String(s).replace(/^#/, ''); need(Number.i
 const routes = [
   ['GET', '/api', (req, res) => send(res, 200, fs.readFileSync(path.join(ROOT, 'API.md')), MIME['.md']), { public: true }],
   ['POST', '/api/setup', async (req, res) => {
-    need(!q('SELECT 1 FROM users').get(), 409, 'already set up')
-    const { user } = createUser({ ...(await json(req)), kind: 'human' }); login(res, user); return userOut(user, user)
+    const b = await json(req)
+    need(setupToken, 409, 'already set up')
+    need(typeof b.token === 'string' && b.token.length === setupToken.length && timingSafeEqual(Buffer.from(b.token), Buffer.from(setupToken)),
+      403, 'setup token required: open the setup link printed in the server log')
+    const { user } = createUser({ ...b, kind: 'human' }); setupToken = null; login(req, res, user); return userOut(user, user)
   }, { public: true }],
   ['POST', '/api/login', async (req, res) => {
-    const b = await json(req), u = q("SELECT * FROM users WHERE email=? AND kind='human'").get(String(b.email ?? ''))
-    need(u && checkPass(String(b.password ?? ''), u.pass), 401, 'wrong email or password'); login(res, u); return userOut(u, u)
+    const ip = req.socket.remoteAddress
+    need(loginAllowed(ip), 429, 'too many failed sign-ins; try again in 15 minutes')
+    const b = await json(req), u = q("SELECT * FROM users WHERE email=? AND kind='human'").get(String(b.email ?? '').slice(0, 254))
+    const ok = checkPass(String(b.password ?? '').slice(0, 256), u?.pass)
+    if (!ok) loginFailed(ip)
+    need(ok, 401, 'wrong email or password'); failures.delete(ip); login(req, res, u); return userOut(u, u)
   }, { public: true }],
   ['POST', '/api/logout', (req, res, me) => {
-    const tok = /(?:^|;\s*)ab_session=([^;]+)/.exec(req.headers.cookie || '')?.[1]
-    if (tok) q('DELETE FROM sessions WHERE token_hash=?').run(sha(tok))
+    q('DELETE FROM sessions WHERE token_hash=?').run(sha(sessionToken(req) ?? ''))
+    dropStreams(w => w.cred === me.cred)
     res.setHeader('Set-Cookie', 'ab_session=; Path=/; Max-Age=0'); return { ok: true }
   }],
   ['GET', '/api/me', (req, res, me) => userOut(me, me)],
@@ -257,17 +290,21 @@ const routes = [
       : q(`${EVENT_SQL} ${w} ORDER BY e.id DESC LIMIT ?`).all(...args, limit).reverse()
     return rows.map(eventOut)
   }],
-  ['GET', '/api/stream', (req, res) => {
+  ['GET', '/api/stream', (req, res, me) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
-    res.write(': connected\n\n'); streams.add(res); req.on('close', () => streams.delete(res))
+    res.write(': connected\n\n'); streams.set(res, { userId: me.id, cred: me.cred }); req.on('close', () => streams.delete(res))
   }],
-  ['POST', '/api/files', async (req, res) => {
-    const ext = IMAGE_TYPES[String(req.headers['content-type']).split(';')[0].trim()]
-    need(ext, 415, `Content-Type must be one of ${Object.keys(IMAGE_TYPES).join(', ')}`)
-    const buf = await readBody(req, 20 << 20); need(buf.length, 400, 'empty upload')
+  ['POST', '/api/files', async (req, res, me, p, query) => {
+    // Keep a readable name, but only safe characters: it ends up in markdown and in Content-Disposition.
+    const original = String(query.name || 'file').replace(/[^\w.\- ]+/g, '_').replace(/^[.\s]+/, '').slice(0, 120) || 'file'
+    const ext = (/\.[a-z0-9]{1,10}$/i.exec(original)?.[0] ?? '').toLowerCase()
+    const buf = await readBody(req, MAX_UPLOAD); need(buf.length, 400, 'empty upload')
     const name = randomBytes(16).toString('hex') + ext
     fs.writeFileSync(path.join(FILES, name), buf) // ponytail: files outlive deleted tickets; sweep unreferenced files if disk matters
-    return created(res, { url: '/files/' + name, markdown: `![image](/files/${name})` })
+    q('INSERT INTO files VALUES (?,?,?,?,?)').run(name, original, buf.length, me.id, Date.now())
+    const url = '/files/' + name
+    return created(res, { url, name: original, size: buf.length, image: ext in INLINE_IMAGES,
+      markdown: ext in INLINE_IMAGES ? `![${original}](${url})` : `[${original}](${url})` })
   }],
   // --- settings (humans only)
   ['POST', '/api/columns', async (req, res, me) => {
@@ -313,27 +350,44 @@ const routes = [
     return created(res, { ...userOut(user, me), ...(key && { key }) })
   }],
   ['POST', '/api/users/:name/key', (req, res, me, p) => {
-    human(me); const key = newKey(); q('UPDATE users SET key_hash=? WHERE id=?').run(sha(key), userId(p.name, me)); return { key }
+    human(me); const key = newKey(), id = userId(p.name, me)
+    q('UPDATE users SET key_hash=? WHERE id=?').run(sha(key), id); dropStreams(w => w.userId === id && w.cred === 'key'); return { key }
   }],
   ['DELETE', '/api/users/:name', (req, res, me, p) => {
     human(me); const id = userId(p.name, me); need(id !== me.id, 400, 'cannot delete yourself')
-    q('DELETE FROM users WHERE id=?').run(id); emit({ type: 'meta' }); return { ok: true }
+    q('DELETE FROM users WHERE id=?').run(id); dropStreams(w => w.userId === id); emit({ type: 'meta' }); return { ok: true }
   }],
 ].map(([method, pattern, fn, opts]) =>
   ({ method, fn, ...opts, re: new RegExp('^' + pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') }))
 
-function serveFile(res, file, root) {
+function serveFile(res, file, root, headers = {}) {
   if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return send(res, 404, { error: 'not found' })
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' })
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...headers })
   fs.createReadStream(file).pipe(res)
+}
+function serveUpload(res, name) {
+  const ext = path.extname(name).toLowerCase(), row = q('SELECT original FROM files WHERE name=?').get(name)
+  const filename = encodeURIComponent(row?.original ?? name)
+  // Uploads are untrusted: sandboxed, never sniffed, and anything but a plain raster image is a download.
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox")
+  serveFile(res, path.join(FILES, name), FILES, ext in INLINE_IMAGES
+    ? { 'Content-Type': INLINE_IMAGES[ext], 'Content-Disposition': `inline; filename*=UTF-8''${filename}`, 'Cache-Control': 'private, max-age=31536000, immutable' }
+    : { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename*=UTF-8''${filename}`, 'Cache-Control': 'private, no-cache' })
 }
 const VENDOR = { '/vendor/markdown-it.mjs': path.join(ROOT, 'node_modules/markdown-it/dist/browser/markdown-it.esm.min.mjs') }
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'same-origin')
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
   const url = new URL(req.url, 'http://x'), query = Object.fromEntries(url.searchParams)
   try {
+    // CSRF: browsers always send Origin on cross-origin writes. Other *.ts.net hosts count as "same-site", so SameSite alone isn't enough.
+    if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin) {
+      let host; try { host = new URL(req.headers.origin).host } catch {}
+      need(host === req.headers.host, 403, 'cross-origin request refused')
+    }
     let pathname
     try { pathname = decodeURIComponent(url.pathname) } catch { throw new HttpError(400, 'bad url') }
     if (pathname.startsWith('/api')) {
@@ -347,16 +401,21 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname.startsWith('/files/')) {
       if (!authUser(req)) return send(res, 401, { error: 'unauthorized' })
-      res.setHeader('Content-Security-Policy', "default-src 'none'")
-      return serveFile(res, path.join(FILES, path.basename(pathname)), FILES)
+      return serveUpload(res, path.basename(pathname))
     }
     if (VENDOR[pathname]) return serveFile(res, VENDOR[pathname], ROOT)
     return serveFile(res, path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname), PUBLIC)
   } catch (e) {
+    // Unread upload left on the socket: answer, then hang up instead of draining it.
+    if (!req.complete) { res.setHeader('Connection', 'close'); res.on('finish', () => req.destroy()) }
     if (e instanceof HttpError) return send(res, e.status, { error: e.message })
     if (/UNIQUE constraint/.test(e.message)) return send(res, 409, { error: 'already exists: ' + e.message.split(': ').pop() })
     console.error(e); send(res, 500, { error: 'internal error' })
   }
 })
-server.listen(+(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log(`agentboard on http://${process.env.HOST || '127.0.0.1'}:${server.address().port}`))
+server.listen(+(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => {
+  const base = `http://${process.env.HOST || '127.0.0.1'}:${server.address().port}`
+  console.log(`agentboard on ${base}`)
+  if (setupToken) console.log(`first run: create the owner account at ${base}/?setup=${setupToken}`)
+})
 export default server

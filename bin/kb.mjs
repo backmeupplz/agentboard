@@ -11,7 +11,7 @@ const HELP = `kb <command>            (env: AGENTBOARD_URL, AGENTBOARD_KEY; full
   set <id> [--title t] [--column c] [--project p] [--assignee a|none] [--link url]... [--body md] [--comment md] [--if-column c]
   mv <id> <column> [comment]              move (and optionally comment)
   comment <id> [markdown]                 markdown from stdin if omitted
-  attach <id> <image> [caption]           upload an image and post it as a comment
+  attach <id> <file>... [--comment md]    upload files (images show inline) and post them as one comment
   events [--after id] [--ticket id]       event log, oldest first
   watch                                   stream live changes (one JSON per line)
   api <METHOD> <path> [json]              raw call, e.g. kb api GET /api/tickets/42
@@ -51,10 +51,13 @@ const commands = {
   mv: () => call('PATCH', '/api/tickets/' + pos[0], { column: pos[1], comment: pos.slice(2).join(' ') || undefined }),
   comment: () => call('POST', `/api/tickets/${pos[0]}/comments`, { body: pos.slice(1).join(' ') || stdin() }),
   attach: async () => {
-    const type = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }[path.extname(pos[1] || '').toLowerCase()]
-    if (!type) die('attach needs a .png/.jpg/.gif/.webp file')
-    const { markdown } = await call('POST', '/api/files', fs.readFileSync(pos[1]), type)
-    return call('POST', `/api/tickets/${pos[0]}/comments`, { body: (pos.slice(2).join(' ') + '\n\n' + markdown).trim() })
+    const [id, ...files] = pos
+    if (!files.length) die('usage: kb attach <id> <file>... [--comment md]')
+    const types = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+    const uploaded = []
+    for (const f of files) uploaded.push(await call('POST', '/api/files?name=' + encodeURIComponent(path.basename(f)), fs.readFileSync(f),
+      types[path.extname(f).toLowerCase()] || 'application/octet-stream'))
+    return call('POST', `/api/tickets/${id}/comments`, { body: [opt.comment, uploaded.map(u => u.markdown).join(' ')].filter(Boolean).join('\n\n') })
   },
   events: () => call('GET', '/api/events' + qs(opt)),
   watch: async () => {

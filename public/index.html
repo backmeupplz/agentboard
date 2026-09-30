@@ -5,41 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>agentboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='2' width='4' height='12' rx='1' fill='%236e7cff'/><rect x='6' y='2' width='4' height='8' rx='1' fill='%236e7cff'/><rect x='11' y='2' width='4' height='5' rx='1' fill='%236e7cff'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%237c8cff'/><rect x='3' y='3.5' width='2.6' height='9' rx='1' fill='white'/><rect x='6.7' y='3.5' width='2.6' height='6' rx='1' fill='white'/><rect x='10.4' y='3.5' width='2.6' height='3.5' rx='1' fill='white'/></svg>">
 <link rel="stylesheet" href="/style.css">
 <script src="/app.js" type="module"></script>
 </head>
 <body>
-<form id="auth" hidden>
-  <h1>agentboard</h1>
-  <p id="auth-hint"></p>
-  <input name="name" placeholder="Your name (letters, digits, _ . -)" autocomplete="username" hidden>
+<form id="auth" class="auth" hidden>
+  <div class="brand"><span class="mark"><svg class="i"><use href="/icons.svg#columns-3"/></svg></span> agentboard</div>
+  <p id="auth-hint" class="dim"></p>
+  <input name="name" placeholder="Username" autocomplete="username" hidden>
   <input name="email" type="email" placeholder="Email" autocomplete="email" required>
   <input name="password" type="password" placeholder="Password" autocomplete="current-password" minlength="8" required>
-  <button>Sign in</button>
-  <p class="error" id="auth-error"></p>
+  <button class="btn primary">Sign in</button>
+  <p class="error" id="auth-error" role="alert"></p>
 </form>
 
 <div id="app" hidden>
   <header>
-    <b class="logo">agentboard</b>
-    <input id="f-q" type="search" placeholder="Search title or #id" aria-label="Search">
+    <div class="brand"><span class="mark"><svg class="i"><use href="/icons.svg#columns-3"/></svg></span><span class="name">agentboard</span></div>
+    <label class="search"><svg class="i"><use href="/icons.svg#search"/></svg><input id="f-q" type="search" placeholder="Search or #id" aria-label="Search"></label>
     <select id="f-project" aria-label="Project filter"></select>
     <select id="f-assignee" aria-label="Assignee filter"></select>
     <span class="grow"></span>
-    <span id="live" title="Realtime connection">●</span>
-    <button id="btn-new">+ Ticket</button>
-    <button id="btn-activity" class="ghost">Activity</button>
-    <button id="btn-settings" class="ghost">Settings</button>
-    <button id="btn-logout" class="ghost" title="Sign out"></button>
+    <span id="live" title="Connecting…"></span>
+    <button id="btn-new" class="btn primary"><svg class="i"><use href="/icons.svg#plus"/></svg><span>New</span></button>
+    <button id="btn-activity" class="btn ghost icon" title="Activity" aria-label="Activity"><svg class="i"><use href="/icons.svg#activity"/></svg></button>
+    <button id="btn-settings" class="btn ghost icon" title="Settings" aria-label="Settings"><svg class="i"><use href="/icons.svg#settings"/></svg></button>
+    <button id="btn-logout" class="btn ghost icon" title="Sign out" aria-label="Sign out"><svg class="i"><use href="/icons.svg#log-out"/></svg></button>
   </header>
   <main>
     <div id="board"></div>
-    <aside id="activity" hidden><h3>Activity</h3><ol id="feed"></ol></aside>
+    <aside id="activity" aria-label="Activity">
+      <div class="aside-head"><b>Activity</b><button id="btn-activity-close" class="btn ghost icon sm" title="Close" aria-label="Close"><svg class="i"><use href="/icons.svg#x"/></svg></button></div>
+      <ol id="feed"></ol>
+    </aside>
   </main>
 </div>
 
 <dialog id="ticket"></dialog>
 <dialog id="settings"></dialog>
+<dialog id="lightbox"><img alt=""></dialog>
+<div id="toasts" aria-live="polite"></div>
 </body>
 </html>

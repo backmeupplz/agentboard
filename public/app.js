@@ -1,14 +1,21 @@
 import markdownit from '/vendor/markdown-it.mjs'
+
+// html:false escapes raw HTML; markdown-it's validateLink blocks javascript:/data: URLs.
 const md = markdownit({ html: false, linkify: true, breaks: true })
 const defaultLink = md.renderer.rules.link_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
-md.renderer.rules.link_open = (tokens, i, o, e, self) => { tokens[i].attrSet('target', '_blank'); tokens[i].attrSet('rel', 'noopener'); return defaultLink(tokens, i, o, e, self) }
+md.renderer.rules.link_open = (tokens, i, o, e, self) => {
+  if (!tokens[i].attrGet('href').startsWith('/files/')) tokens[i].attrSet('target', '_blank'), tokens[i].attrSet('rel', 'noopener noreferrer')
+  return defaultLink(tokens, i, o, e, self)
+}
 
+// ---------- tiny DOM kit
 const $ = s => document.querySelector(s)
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag)
   for (const [k, v] of Object.entries(attrs)) {
     if (k.startsWith('on')) el.addEventListener(k.slice(2), v)
     else if (k === 'class') el.className = v
+    else if (k === 'style') Object.entries(v).forEach(([p, x]) => el.style.setProperty(p, x)) // CSSOM, allowed by the strict CSP
     else if (k === 'value') continue
     else if (v != null && v !== false) el.setAttribute(k, v === true ? '' : v)
   }
@@ -16,54 +23,77 @@ const h = (tag, attrs = {}, ...kids) => {
   if ('value' in attrs) el.value = attrs.value ?? ''
   return el
 }
-const mdEl = (src, cls = 'md') => { const el = h('div', { class: cls }); el.innerHTML = md.render(src || ''); return el } // markdown-it html:false escapes raw HTML
-const options = (list, value) => list.map(([v, label]) => h('option', { value: v, selected: v === value }, label))
+const icon = name => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), use = document.createElementNS('http://www.w3.org/2000/svg', 'use')
+  svg.setAttribute('class', 'i'); svg.setAttribute('aria-hidden', 'true'); use.setAttribute('href', '/icons.svg#' + name); svg.append(use)
+  return svg
+}
+const btn = (iconName, label, onclick, cls = 'ghost icon') =>
+  h('button', { type: 'button', class: 'btn ' + cls, title: label, 'aria-label': label, onclick }, icon(iconName))
+const options = (list, value) => list.map(([v, label]) => h('option', { value: v, selected: v === (value ?? '') }, label))
 const qs = o => { const p = new URLSearchParams(Object.entries(o).filter(([, v]) => v !== '' && v != null)); return p.size ? '?' + p : '' }
 const ago = t => { const s = (Date.now() - new Date(t)) / 1e3; return s < 60 ? 'now' : s < 3600 ? `${s / 60 | 0}m` : s < 86400 ? `${s / 3600 | 0}h` : `${s / 86400 | 0}d` }
+const time = t => h('time', { 'data-time': t, datetime: t, title: new Date(t).toLocaleString() }, ago(t))
 const store = { get: k => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
 const shortLink = u => {
   const m = /^https?:\/\/github\.com\/([^/]+\/[^/#?]+)(?:\/(?:pull|issues)\/(\d+))?/.exec(u)
-  return m ? m[1] + (m[2] ? '#' + m[2] : '') : u.replace(/^https?:\/\//, '').slice(0, 60)
+  return m ? m[1] + (m[2] ? ' #' + m[2] : '') : u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)
 }
+const linkIcon = u => /\/pull\/\d+/.test(u) ? 'git-pull-request' : /github\.com\/[^/]+\/[^/]+\/?$/.test(u) ? 'folder-git-2' : 'link'
+
+function toast(msg, bad = true) {
+  const el = h('div', { class: 'toast' + (bad ? ' bad' : ''), role: 'status' }, msg)
+  $('#toasts').append(el); setTimeout(() => el.remove(), 4000)
+}
+const attempt = fn => async (...a) => { try { return await fn(...a) } catch (e) { toast(e.message) } }
 
 async function api(method, url, body) {
-  const blob = body instanceof Blob
-  const r = await fetch('/api' + url, { method, body: blob ? body : body && JSON.stringify(body),
-    headers: blob ? { 'Content-Type': body.type } : body ? { 'Content-Type': 'application/json' } : {} })
+  const raw = body instanceof Blob
+  const r = await fetch('/api' + url, { method, body: raw ? body : body && JSON.stringify(body),
+    headers: raw ? { 'Content-Type': body.type || 'application/octet-stream' } : body ? { 'Content-Type': 'application/json' } : {} })
   const data = (r.headers.get('content-type') || '').includes('json') ? await r.json() : await r.text()
   if (!r.ok) {
-    if (r.status === 401 && S.me && !url.startsWith('/log')) location.reload()
+    if (r.status === 401 && S.me) location.reload()
     throw Object.assign(new Error(data.error || r.statusText), { status: r.status, data })
   }
   return data
 }
-const attempt = fn => async (...a) => { try { await fn(...a) } catch (e) { alert(e.message) } }
 
-const S = { me: null, board: null, cols: new Map(), cards: new Map(), gen: 0,
+const S = { me: null, board: null, cols: new Map(), cards: new Map(), gen: 0, tab: 'columns', newKind: 'agent',
   f: Object.fromEntries(['q', 'project', 'assignee'].map(k => [k, new URLSearchParams(location.search).get(k) || ''])) }
+
+// ---------- people & projects
+const userKind = name => S.board?.users.find(u => u.name === name)?.kind
+const project = name => S.board.projects.find(p => p.name === name)
+const hue = name => [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7)
+const avatar = (name, kind = userKind(name)) => kind === 'agent'
+  ? h('span', { class: 'avatar agent', title: name + ' (agent)' }, icon('bot'))
+  : h('span', { class: 'avatar', style: { '--h': `hsl(${hue(name)} 45% 38%)` }, title: name }, name[0].toUpperCase())
+const who = name => name ? h('span', { class: 'who' }, avatar(name), name) : h('span', { class: 'who faint' }, 'someone')
+const flair = name => { const p = project(name); return p && h('span', { class: 'flair', style: { '--c': p.color } }, p.name) }
 
 // ---------- auth
 async function start() {
   try { S.me = await api('GET', '/me') } catch (e) { return showAuth(e.data?.setup) }
   $('#app').hidden = false
-  $('#btn-logout').textContent = S.me.name + ' ⎋'
-  for (const k of ['q', 'project', 'assignee']) $('#f-' + k).value = S.f[k]
+  $('#btn-logout').title = `Sign out ${S.me.name}`
+  $('#f-q').value = S.f.q
   connect()
   await loadBoard()
-  if (store.get('activity') === '1') toggleActivity()
+  if (store.get('activity') === '1') attempt(toggleActivity)()
   route()
 }
 function showAuth(setup) {
-  const f = $('#auth'); f.hidden = false
-  const el = f.elements
+  const f = $('#auth'), el = f.elements, token = new URLSearchParams(location.search).get('setup')
+  f.hidden = false
   el.name.hidden = !setup; el.name.required = !!setup
-  f.querySelector('button').textContent = setup ? 'Create account' : 'Sign in'
-  $('#auth-hint').textContent = setup ? 'First run: create the owner account.' : ''
+  f.querySelector('button').textContent = setup ? 'Create owner account' : 'Sign in'
+  $('#auth-hint').textContent = setup ? (token ? 'First run: create the owner account.' : 'First run: open the setup link printed in the server log.') : ''
   f.onsubmit = async e => {
     e.preventDefault()
     try {
-      await api('POST', setup ? '/setup' : '/login', { name: el.name.value, email: el.email.value, password: el.password.value })
-      location.reload()
+      await api('POST', setup ? '/setup' : '/login', { name: el.name.value, email: el.email.value, password: el.password.value, token })
+      location.replace(location.pathname)
     } catch (err) { $('#auth-error').textContent = err.message }
   }
 }
@@ -71,18 +101,12 @@ function showAuth(setup) {
 // ---------- board
 const matches = t => {
   const { q, project, assignee } = S.f, eq = (a, b) => (a || '').toLowerCase() === b.toLowerCase()
-  const who = assignee === 'me' ? S.me.name : assignee
   const id = /^#?(\d+)$/.exec(q.trim())
   return (!project || (project === 'none' ? !t.project : eq(t.project, project)))
-    && (!assignee || (assignee === 'none' ? !t.assignee : eq(t.assignee, who)))
+    && (!assignee || (assignee === 'none' ? !t.assignee : eq(t.assignee, assignee)))
     && (!q || (id ? t.id === +id[1] : t.title.toLowerCase().includes(q.toLowerCase())))
 }
 const byPos = (a, b) => a.position - b.position || a.id - b.id
-const project = name => S.board.projects.find(p => p.name === name)
-const userKind = name => S.board.users.find(u => u.name === name)?.kind
-const flair = name => { const p = project(name); return p && h('span', { class: 'flair', style: `color:${p.color};border-color:${p.color}88` }, p.name) }
-const who = name => name && h('span', { class: 'who ' + (userKind(name) || '') }, name)
-
 const observer = new IntersectionObserver(entries => entries.forEach(e => e.isIntersecting && loadMore(e.target.col)))
 
 async function loadBoard() {
@@ -94,12 +118,14 @@ async function loadBoard() {
   S.cols.forEach(c => observer.unobserve(c.more)); S.cols.clear(); S.cards.clear()
   $('#board').replaceChildren(...board.columns.map(c => {
     const col = { slug: c.slug, offset: 0, done: false, loading: false, gen }
-    col.count = h('span', {}, c.count)
+    col.count = h('span', { class: 'count' }, c.count)
     col.more = h('div', { class: 'more' }); col.more.col = col
-    col.cards = h('div', { class: 'cards', ondragover: e => { e.preventDefault(); col.cards.classList.add('drop') },
-      ondragleave: () => col.cards.classList.remove('drop'), ondrop: e => drop(e, col) }, col.more)
+    col.cards = h('div', { class: 'cards',
+      ondragover: e => { if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); col.cards.classList.add('drop') } },
+      ondragleave: e => { if (!col.cards.contains(e.relatedTarget)) col.cards.classList.remove('drop') },
+      ondrop: e => drop(e, col) }, col.more)
     S.cols.set(c.slug, col)
-    return h('section', { class: 'col' }, h('h2', {}, c.name, col.count), col.cards)
+    return h('section', { class: 'col' }, h('div', { class: 'col-head' }, c.name, col.count), col.cards)
   }))
   S.cols.forEach(c => observer.observe(c.more))
 }
@@ -117,13 +143,13 @@ async function loadMore(col) {
 }
 
 function card(t) {
-  const el = h('article', { class: 'card', draggable: 'true', 'data-id': t.id, onclick: () => { location.hash = t.id },
+  const el = h('article', { class: 'card', draggable: 'true', 'data-id': t.id, tabindex: 0,
+    onclick: () => { location.hash = t.id }, onkeydown: e => { if (e.key === 'Enter') location.hash = t.id },
     ondragstart: e => { e.dataTransfer.setData('text/plain', t.id); el.classList.add('dragging') },
     ondragend: () => el.classList.remove('dragging') },
-    h('div', { class: 'meta' }, h('span', {}, '#' + t.id), flair(t.project), h('span', { class: 'grow' }),
-      h('span', { 'data-time': t.updated_at, title: new Date(t.updated_at).toLocaleString() }, ago(t.updated_at))),
+    h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), flair(t.project), h('span', { class: 'grow' }), time(t.updated_at)),
     h('div', { class: 'title' }, t.title),
-    t.assignee && h('div', { class: 'meta' }, who(t.assignee)))
+    t.assignee && h('div', { class: 'card-foot' }, who(t.assignee)))
   S.cards.set(t.id, { t, el })
   return el
 }
@@ -132,12 +158,12 @@ function card(t) {
 function upsert(t, flash) {
   const old = S.cards.get(t.id)
   if (old) { old.el.remove(); S.cards.delete(t.id); const c = S.cols.get(old.t.column); if (c) c.offset-- }
-  const col = t && matches(t) && S.cols.get(t.column)
+  const col = matches(t) && S.cols.get(t.column)
   if (!col) return
   const next = [...col.cards.children].find(el => el.dataset.id && byPos(t, S.cards.get(+el.dataset.id).t) < 0)
   if (!next && !col.done) return // belongs past the loaded page; pagination will bring it
   const el = card(t); col.cards.insertBefore(el, next || col.more); col.offset++
-  if (flash) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 60) }
+  if (flash) { el.classList.add('flash'); el.addEventListener('animationend', () => el.classList.remove('flash'), { once: true }) }
 }
 
 async function drop(e, col) {
@@ -148,19 +174,21 @@ async function drop(e, col) {
   const i = cards.findIndex(c => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 })
   const pos = el => S.cards.get(+el.dataset.id).t.position
   const position = !cards.length ? undefined : i === 0 ? pos(cards[0]) - 1 : i === -1 ? pos(cards.at(-1)) + 1 : (pos(cards[i - 1]) + pos(cards[i])) / 2
-  try { upsert(await api('PATCH', '/tickets/' + id, { column: col.slug, position })) } catch (err) { alert(err.message) }
+  attempt(async () => upsert(await api('PATCH', '/tickets/' + id, { column: col.slug, position })))()
 }
+// Dropping a file outside a composer must not navigate away from the board.
+window.addEventListener('dragover', e => e.dataTransfer.types.includes('Files') && e.preventDefault())
+window.addEventListener('drop', e => e.dataTransfer.types.includes('Files') && e.preventDefault())
 
 let countsTimer
-const refreshCounts = () => { clearTimeout(countsTimer); countsTimer = setTimeout(async () => {
+const refreshCounts = () => { clearTimeout(countsTimer); countsTimer = setTimeout(attempt(async () => {
   const b = await api('GET', '/board' + qs(S.f))
   b.columns.forEach(c => { const col = S.cols.get(c.slug); if (col) col.count.textContent = c.count })
-}, 300) }
+}), 300) }
 
 function renderFilters() {
-  const p = $('#f-project'), a = $('#f-assignee')
-  p.replaceChildren(...options([['', 'All projects'], ['none', 'No project'], ...S.board.projects.map(x => [x.name, x.name])], S.f.project))
-  a.replaceChildren(...options([['', 'Anyone'], ['me', 'Me'], ['none', 'Unassigned'], ...S.board.users.map(u => [u.name, (u.kind === 'agent' ? '◆ ' : '') + u.name])], S.f.assignee))
+  $('#f-project').replaceChildren(...options([['', 'All projects'], ['none', 'No project'], ...S.board.projects.map(x => [x.name, x.name])], S.f.project))
+  $('#f-assignee').replaceChildren(...options([['', 'Anyone'], ['none', 'Unassigned'], ...S.board.users.map(u => [u.name, u.name])], S.f.assignee))
 }
 function setFilter(k, v) {
   S.f[k] = v
@@ -175,183 +203,246 @@ setInterval(() => document.querySelectorAll('[data-time]').forEach(el => { el.te
 
 // ---------- realtime
 function connect() {
-  const es = new EventSource('/api/stream')
+  const es = new EventSource('/api/stream'), live = $('#live')
   let dropped = false
-  es.onopen = () => { $('#live').classList.add('on'); if (dropped) { dropped = false; loadBoard(); reopenTicket() } }
-  es.onerror = () => { $('#live').classList.remove('on'); dropped = true }
+  es.onopen = () => { live.classList.add('on'); live.title = 'Live'; if (dropped) { dropped = false; loadBoard(); refreshTicket() } }
+  es.onerror = () => { live.classList.remove('on'); live.title = 'Reconnecting…'; dropped = true }
   es.onmessage = e => {
     const m = JSON.parse(e.data)
     if (m.type === 'meta') return loadBoard()
     if (m.ticket) upsert(m.ticket, true)
     else { const old = S.cards.get(m.id); if (old) { old.el.remove(); S.cards.delete(m.id) } }
     refreshCounts()
-    m.events.forEach(feedItem)
-    if (openId === m.id) m.ticket ? reopenTicket() : $('#ticket').close()
+    m.events.forEach(ev => feedItem(ev))
+    if (openId === m.id) m.ticket ? refreshTicket() : dlg.close()
   }
 }
 
-// ---------- activity feed
-const describe = ev => ({ created: 'created', comment: 'commented', moved: 'moved → ' + ev.body.split(' → ').pop(),
-  assigned: ev.body ? 'assigned ' + ev.body : 'unassigned', edited: 'edited ' + ev.body, deleted: 'deleted ' + ev.body })[ev.type] || ev.type
+// ---------- events (feed + timeline)
+const EVENTS = {
+  created: ['plus', () => 'created'],
+  comment: ['message-square', () => 'commented'],
+  moved: ['arrow-right', ev => ['moved to ', h('b', {}, ev.body.split(' → ').pop())]],
+  assigned: ['user', ev => ev.body ? ['assigned ', h('b', {}, ev.body)] : 'unassigned'],
+  edited: ['pencil', ev => 'edited ' + ev.body],
+  deleted: ['trash-2', ev => ['deleted ', h('b', {}, ev.body)]],
+}
+const describe = ev => (EVENTS[ev.type] || ['activity', () => ev.type])[1](ev)
 function feedItem(ev, append) {
   const feed = $('#feed'); if (!feed.loaded) return
   const li = h('li', { onclick: () => ev.ticket_id && (location.hash = ev.ticket_id) },
-    h('div', { class: 'meta' }, who(ev.user) || h('span', {}, 'someone'), h('span', {}, describe(ev)), h('span', { class: 'grow' }),
-      h('span', { 'data-time': ev.created_at }, ago(ev.created_at))),
-    ev.ticket_id && h('div', {}, `#${ev.ticket_id} ${ev.ticket_title || ''}`),
-    ev.type === 'comment' && h('div', { class: 'snippet' }, ev.body.slice(0, 200)))
+    ev.user ? avatar(ev.user, ev.user_kind) : h('span'),
+    h('div', { class: 'meta' }, h('span', { class: 'what' }, h('b', {}, ev.user || 'someone'), ' ', describe(ev),
+      ev.ticket_id && [' ', h('b', {}, '#' + ev.ticket_id)]), h('span', { class: 'grow' }), time(ev.created_at)),
+    ev.ticket_title && h('div', { class: 'snippet' }, ev.type === 'comment' ? ev.body.replace(/!?\[([^\]]*)\]\(\/files\/[^)]*\)/g, '📎 $1').slice(0, 160) : ev.ticket_title))
   append ? feed.append(li) : feed.prepend(li)
   while (feed.children.length > 300) feed.lastChild.remove()
 }
 async function toggleActivity() {
-  const a = $('#activity'); a.hidden = !a.hidden; store.set('activity', a.hidden ? '0' : '1')
-  if (!a.hidden && !$('#feed').loaded) { const evs = await api('GET', '/events?limit=100'); $('#feed').loaded = true; evs.reverse().forEach(ev => feedItem(ev, true)) }
+  const a = $('#activity'), open = a.classList.toggle('open'); store.set('activity', open ? '1' : '0')
+  if (open && !$('#feed').loaded) { const evs = await api('GET', '/events?limit=100'); $('#feed').loaded = true; evs.reverse().forEach(ev => feedItem(ev, true)) }
 }
-$('#btn-activity').onclick = toggleActivity
+$('#btn-activity').onclick = $('#btn-activity-close').onclick = attempt(toggleActivity)
+
+// ---------- markdown + attachments
+function mdEl(src) {
+  const el = h('div', { class: 'md' }); el.innerHTML = md.render(src || '')
+  el.querySelectorAll('a[href^="/files/"]').forEach(a => { a.classList.add('file'); a.prepend(icon('paperclip')) })
+  el.querySelectorAll('img').forEach(img => { img.loading = 'lazy' })
+  return el
+}
+const lightbox = $('#lightbox')
+lightbox.onclick = () => lightbox.close()
+document.addEventListener('click', e => {
+  if (e.target.tagName === 'IMG' && e.target.closest('.md')) { lightbox.querySelector('img').src = e.target.src; lightbox.showModal() }
+})
+
+// A markdown box with multi-file attachments (button, paste or drop). Files upload immediately; markdown is appended on submit.
+function composer({ value = '', placeholder, rows = 3, label, iconName = 'send', onSubmit, onCancel }) {
+  const ta = h('textarea', { rows, placeholder, value }), tray = h('div', { class: 'tray' }), pending = []
+  const remove = item => { item.chip.remove(); const i = pending.indexOf(item); if (i >= 0) pending.splice(i, 1) }
+  const add = file => {
+    const chip = h('div', { class: 'chip loading' }, file.type.startsWith('image/') ? h('img', { src: URL.createObjectURL(file), alt: '' }) : icon('file-text'),
+      h('span', { class: 'name' }, file.name || 'file'))
+    const item = { chip }
+    item.done = api('POST', '/files?name=' + encodeURIComponent(file.name || 'file'), file)
+      .then(r => { item.file = r; chip.classList.remove('loading') }, e => { remove(item); toast(`${file.name}: ${e.message}`) })
+    chip.append(btn('x', 'Remove ' + (file.name || 'file'), () => remove(item), 'ghost icon sm'))
+    pending.push(item); tray.append(chip)
+  }
+  const addAll = files => [...files].forEach(add)
+  const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { addAll(input.files); input.value = '' } })
+  ta.addEventListener('paste', e => { if (e.clipboardData.files.length) { e.preventDefault(); addAll(e.clipboardData.files) } })
+  let busy = false
+  const submit = async () => {
+    if (busy) return; busy = true
+    try {
+      await Promise.all(pending.map(p => p.done))
+      const files = pending.filter(p => p.file).map(p => p.file)
+      const text = [ta.value.trim(), files.filter(f => f.image).map(f => f.markdown).join(' '), files.filter(f => !f.image).map(f => f.markdown).join(' ')]
+        .filter(Boolean).join('\n\n')
+      if (!text && !onCancel) return
+      await onSubmit(text)
+      ta.value = ''; pending.splice(0); tray.replaceChildren()
+    } catch (e) { toast(e.message) } finally { busy = false }
+  }
+  ta.onkeydown = e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit() }
+  const el = h('div', { class: 'composer',
+    ondragover: e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); el.classList.add('over') } },
+    ondragleave: e => { if (!el.contains(e.relatedTarget)) el.classList.remove('over') },
+    ondrop: e => { el.classList.remove('over'); if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); addAll(e.dataTransfer.files) } } },
+    ta, tray, h('div', { class: 'bar' }, input, btn('paperclip', 'Attach files', () => input.click()), h('span', { class: 'faint hint' }, '⌘↵'),
+      h('span', { class: 'grow' }), onCancel && h('button', { type: 'button', class: 'btn ghost', onclick: onCancel }, 'Cancel'),
+      h('button', { type: 'button', class: 'btn primary', onclick: submit }, icon(iconName), label)))
+  return { el, ta }
+}
 
 // ---------- ticket dialog
 let openId = null
 const dlg = $('#ticket')
 dlg.addEventListener('close', () => { openId = null; if (location.hash) history.replaceState(null, '', location.pathname + location.search) })
-dlg.addEventListener('click', e => {
-  if (e.target === dlg) dlg.close()
-  if (e.target.tagName === 'IMG' && e.target.closest('.md')) window.open(e.target.src, '_blank')
-})
+dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close() })
 window.addEventListener('hashchange', route)
 function route() { const id = +location.hash.slice(1); id ? openTicket(id) : dlg.open && dlg.close() }
-
-async function upload(file, textarea) {
-  const { markdown } = await api('POST', '/files', file)
-  const at = textarea.selectionStart ?? textarea.value.length
-  textarea.value = textarea.value.slice(0, at) + markdown + '\n' + textarea.value.slice(at)
-}
-const imageDrop = ta => {
-  const take = files => [...files].filter(f => f.type.startsWith('image/')).forEach(attempt(f => upload(f, ta)))
-  ta.addEventListener('paste', e => { if (e.clipboardData.files.length) { e.preventDefault(); take(e.clipboardData.files) } })
-  ta.addEventListener('drop', e => { if (e.dataTransfer.files.length) { e.preventDefault(); take(e.dataTransfer.files) } })
-  return ta
-}
-const attachButton = ta => {
-  const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: true, hidden: true,
-    onchange: () => { [...input.files].forEach(attempt(f => upload(f, ta))); input.value = '' } })
-  return [input, h('button', { type: 'button', class: 'ghost', onclick: () => input.click() }, 'Attach image')]
-}
-const fieldSelects = (t, onchange) => h('div', { class: 'row' },
-  h('label', {}, 'Column', h('select', { name: 'column', onchange }, options(S.board.columns.map(c => [c.slug, c.name]), t.column))),
-  h('label', {}, 'Project', h('select', { name: 'project', onchange }, options([['', '—'], ...S.board.projects.map(p => [p.name, p.name])], t.project || ''))),
-  h('label', {}, 'Assignee', h('select', { name: 'assignee', onchange }, options([['', '—'], ...S.board.users.map(u => [u.name, u.name])], t.assignee || ''))))
+const field = (label, ...kids) => h('label', { class: 'field' }, h('span', {}, label), ...kids)
+const selects = (t, onchange) => ({
+  column: h('select', { name: 'column', onchange }, options(S.board.columns.map(c => [c.slug, c.name]), t.column)),
+  project: h('select', { name: 'project', onchange }, options([['', 'None'], ...S.board.projects.map(p => [p.name, p.name])], t.project)),
+  assignee: h('select', { name: 'assignee', onchange }, options([['', 'Unassigned'], ...S.board.users.map(u => [u.name, (u.kind === 'agent' ? '◆ ' : '') + u.name])], t.assignee)),
+})
 
 async function openTicket(id) {
   openId = id
   let t
-  try { t = await api('GET', '/tickets/' + id) } catch (e) { openId = null; return alert(e.message) }
+  try { t = await api('GET', '/tickets/' + id) } catch (e) { openId = null; return toast(e.message) }
   if (openId !== id) return
-  const patch = body => api('PATCH', '/tickets/' + id, body).then(upsert)
-  const onSelect = attempt(e => patch({ [e.target.name]: e.target.value || null }))
-  const header = h('div', {}), bodyView = h('div', { class: 'box' }), linksBox = h('div', { class: 'links' }), timeline = h('div', { class: 'timeline' })
-  const done = box => attempt(async body => { await patch(body); box.editing = false; dlg.refresh() })
-  const editBody = () => {
-    const ta = imageDrop(h('textarea', { rows: 12, value: t.body }))
-    bodyView.replaceChildren(ta, h('div', { class: 'row' }, h('button', { onclick: () => done(bodyView)({ body: ta.value }) }, 'Save'),
-      h('button', { class: 'ghost', onclick: () => { bodyView.editing = false; render(t) } }, 'Cancel'), ...attachButton(ta)))
-    bodyView.editing = true; ta.focus()
+  const patch = async body => upsert(await api('PATCH', '/tickets/' + id, body))
+  const sel = selects(t, attempt(e => patch({ [e.target.name]: e.target.value || null })))
+  const title = h('input', { class: 'title-input', 'aria-label': 'Title', onchange: attempt(e => e.target.value.trim() && patch({ title: e.target.value.trim() })) })
+  const pill = h('span', { class: 'pill' }), createdBy = h('div', { class: 'dim' }), repo = h('div')
+  const desc = h('div'), linkList = h('div', { class: 'links' }), timeline = h('div', { class: 'timeline' })
+  let editing = false, seen = null
+  const showDesc = () => desc.replaceChildren(h('div', { class: 'desc' }, mdEl(t.body || '_No description yet._')))
+  const editDesc = () => {
+    editing = true
+    const c = composer({ value: t.body, rows: 10, label: 'Save', iconName: 'check', placeholder: 'Description (markdown)',
+      onSubmit: async text => { await patch({ body: text }); editing = false; refreshTicket() }, onCancel: () => { editing = false; showDesc() } })
+    desc.replaceChildren(c.el); c.ta.focus()
   }
-  const editLinks = () => {
-    const ta = h('textarea', { rows: 3, placeholder: 'One URL per line (repos, PRs, docs)', value: t.links.join('\n') })
-    linksBox.replaceChildren(ta, h('button', { onclick: () => done(linksBox)({ links: ta.value.split(/\s+/).filter(Boolean) }) }, 'Save links'))
-    linksBox.editing = true; ta.focus()
-  }
-  // Redraws only what the user isn't editing, so realtime updates never eat a draft.
+  const linkAdd = h('input', { placeholder: 'Add link (repo, PR, doc)…', type: 'url' })
+  linkAdd.onkeydown = attempt(async e => { if (e.key === 'Enter' && linkAdd.value.trim()) { await patch({ links: [...t.links, linkAdd.value.trim()] }); linkAdd.value = '' } })
+  // Redraws everything the user isn't touching, so realtime updates never eat a draft.
   const render = fresh => {
     t = fresh
-    const repo = project(t.project)?.repo
-    if (!header.firstChild) header.append(h('div', { class: 'meta' }), h('input', { class: 'title', 'aria-label': 'Title',
-      onchange: e => e.target.value.trim() && attempt(patch)({ title: e.target.value.trim() }) }), fieldSelects(t, onSelect))
-    header.firstChild.replaceChildren(h('span', {}, '#' + t.id), h('span', {}, 'by ', who(t.created_by) || 'someone', ' · ', new Date(t.created_at).toLocaleString()))
-    const title = header.querySelector('.title')
     if (title !== document.activeElement || title.value === title.dataset.was) title.value = title.dataset.was = t.title
-    header.querySelectorAll('select').forEach(sel => { if (sel !== document.activeElement) sel.value = t[sel.name] || '' })
-    if (!bodyView.editing) bodyView.replaceChildren(mdEl(t.body || '_No description._'))
-    if (!linksBox.editing) linksBox.replaceChildren(...t.links.map(u => h('a', { href: u, target: '_blank', rel: 'noopener' }, shortLink(u))),
-      repo && h('a', { href: repo, target: '_blank', rel: 'noopener', class: 'dim' }, 'repo: ' + shortLink(repo)) || '',
-      h('button', { class: 'ghost', onclick: editLinks }, t.links.length ? 'Edit links' : '+ Links'))
+    Object.values(sel).forEach(s => { if (s !== document.activeElement) s.value = t[s.name] || '' })
+    pill.textContent = S.board.columns.find(c => c.slug === t.column)?.name ?? t.column
+    createdBy.replaceChildren(who(t.created_by), h('div', { class: 'faint' }, 'created ', time(t.created_at), ' · updated ', time(t.updated_at)))
+    const r = project(t.project)?.repo
+    repo.replaceChildren(r ? h('a', { class: 'link', href: r, target: '_blank', rel: 'noopener noreferrer' }, icon('folder-git-2'), shortLink(r)) : '')
+    if (!editing) showDesc()
+    linkList.replaceChildren(...t.links.map((u, i) => h('div', { class: 'link' }, icon(linkIcon(u)), h('a', { href: u, target: '_blank', rel: 'noopener noreferrer', title: u }, shortLink(u)),
+      btn('x', 'Remove link', attempt(() => patch({ links: t.links.filter((_, j) => j !== i) })), 'ghost icon sm'))))
+    const fresh_ = ev => seen && !seen.has(ev.id) ? ' enter' : '' // animate only what arrived since the last render
     timeline.replaceChildren(...t.events.map(ev => ev.type === 'comment'
-      ? h('div', { class: 'ev comment' }, h('div', { class: 'meta' }, who(ev.user) || 'someone', h('span', { title: new Date(ev.created_at).toLocaleString() }, ago(ev.created_at))), mdEl(ev.body))
-      : h('div', { class: 'ev' }, who(ev.user) || 'someone', ' ', describe(ev), ' · ', ago(ev.created_at))))
+      ? h('div', { class: 'comment' + fresh_(ev) }, h('div', { class: 'meta' }, who(ev.user), time(ev.created_at)), mdEl(ev.body))
+      : h('div', { class: 'ev' + fresh_(ev) }, icon(EVENTS[ev.type]?.[0] || 'activity'), h('b', {}, ev.user || 'someone'), h('span', {}, describe(ev)), time(ev.created_at))))
+    seen = new Set(t.events.map(ev => ev.id))
   }
-  const comment = imageDrop(h('textarea', { placeholder: 'Comment (markdown, paste or drop images) — ⌘/Ctrl+Enter to send', rows: 3 }))
-  const send = attempt(async () => { if (!comment.value.trim()) return; await api('POST', `/tickets/${id}/comments`, { body: comment.value }); comment.value = '' })
-  comment.onkeydown = e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send() }
+  const comment = composer({ placeholder: 'Write a comment… (markdown, paste or drop files)', label: 'Comment',
+    onSubmit: text => api('POST', `/tickets/${id}/comments`, { body: text }) })
   render(t)
-  dlg.replaceChildren(h('div', { class: 'dlg' }, header,
-    h('div', { class: 'row' }, h('b', {}, 'Description'), h('button', { class: 'ghost', onclick: editBody }, 'Edit'),
-      S.me.kind === 'human' && h('button', { class: 'danger', onclick: attempt(async () => { if (confirm(`Delete #${id}?`)) await api('DELETE', '/tickets/' + id) }) }, 'Delete'),
-      h('span', { class: 'grow' }), h('button', { class: 'ghost', onclick: () => dlg.close() }, 'Close')),
-    bodyView, linksBox, timeline, comment,
-    h('div', { class: 'row' }, h('button', { onclick: send }, 'Comment'), ...attachButton(comment))))
+  dlg.replaceChildren(
+    h('div', { class: 'dlg-top' }, h('span', { class: 'id' }, '#' + id), pill, h('span', { class: 'grow' }),
+      btn('trash-2', 'Delete ticket', attempt(async () => { if (confirm(`Delete #${id} “${t.title}”?`)) await api('DELETE', '/tickets/' + id) }), 'ghost icon danger'),
+      btn('x', 'Close', () => dlg.close())),
+    h('div', { class: 'dlg-body' }, title, h('div', { class: 'ticket-grid' },
+      h('div', { class: 'ticket-main' },
+        h('div', { class: 'section-head' }, 'Description', btn('pencil', 'Edit description', editDesc, 'ghost icon sm')), desc,
+        h('div', { class: 'section-head' }, 'Activity'), timeline, comment.el),
+      h('div', { class: 'side' }, field('Column', sel.column), field('Project', sel.project, repo), field('Assignee', sel.assignee),
+        h('div', { class: 'field' }, h('span', {}, 'Links'), linkList, linkAdd), h('div', { class: 'field' }, h('span', {}, 'Created by'), createdBy)))))
   dlg.refresh = async () => { const fresh = await api('GET', '/tickets/' + id); if (openId === id) render(fresh) }
   if (!dlg.open) dlg.showModal()
 }
-function reopenTicket() { if (openId && dlg.refresh) attempt(dlg.refresh)() }
+function refreshTicket() { if (openId && dlg.refresh) attempt(dlg.refresh)() }
 
 $('#btn-new').onclick = () => {
   openId = null
-  const title = h('input', { class: 'title', placeholder: 'Title', required: true })
-  const body = imageDrop(h('textarea', { rows: 8, placeholder: 'Description (markdown)' }))
-  const links = h('textarea', { rows: 2, placeholder: 'Links, one per line (optional)' })
-  const selects = fieldSelects({ column: S.board.columns[0]?.slug, project: S.f.project !== 'none' && S.f.project }, null)
-  const val = n => selects.querySelector(`[name=${n}]`).value || null
-  const create = attempt(async () => {
-    if (!title.value.trim()) return title.focus()
-    const t = await api('POST', '/tickets', { title: title.value.trim(), body: body.value, column: val('column'), project: val('project'),
-      assignee: val('assignee'), links: links.value.split(/\s+/).filter(Boolean) })
-    upsert(t); location.hash = t.id
-  })
-  dlg.replaceChildren(h('div', { class: 'dlg' }, h('h2', {}, 'New ticket'), title, selects, body, links,
-    h('div', { class: 'row' }, h('button', { onclick: create }, 'Create'), ...attachButton(body), h('button', { class: 'ghost', onclick: () => dlg.close() }, 'Cancel'))))
+  const title = h('input', { class: 'title-input', placeholder: 'Ticket title', 'aria-label': 'Title' })
+  const sel = selects({ column: S.board.columns[0]?.slug, project: S.f.project !== 'none' ? S.f.project : '', assignee: S.f.assignee !== 'none' ? S.f.assignee : '' })
+  const c = composer({ rows: 6, label: 'Create', iconName: 'plus', placeholder: 'Description (markdown, paste or drop files)',
+    onSubmit: async body => {
+      if (!title.value.trim()) { title.focus(); throw new Error('Title is required') }
+      const t = await api('POST', '/tickets', { title: title.value.trim(), body, column: sel.column.value, project: sel.project.value || null, assignee: sel.assignee.value || null })
+      upsert(t, true); location.hash = t.id
+    }, onCancel: () => dlg.close() })
+  dlg.replaceChildren(h('div', { class: 'dlg-top' }, h('b', {}, 'New ticket'), h('span', { class: 'grow' }), btn('x', 'Close', () => dlg.close())),
+    h('div', { class: 'dlg-body ticket-main' }, title, h('div', { class: 'row' }, field('Column', sel.column), field('Project', sel.project), field('Assignee', sel.assignee)), c.el))
   dlg.showModal(); title.focus()
 }
 
 // ---------- settings
 const sdlg = $('#settings')
 sdlg.addEventListener('click', e => { if (e.target === sdlg) sdlg.close() })
-$('#btn-settings').onclick = () => { renderSettings(); sdlg.showModal() }
+$('#btn-settings').onclick = attempt(async () => { await renderSettings(); sdlg.showModal() })
 $('#btn-logout').onclick = attempt(async () => { await api('POST', '/logout'); location.reload() })
+const randomColor = () => '#' + [0, 0, 0].map(() => (96 + Math.random() * 144 | 0).toString(16)).join('')
 
-async function renderSettings(notice) {
-  const human = S.me.kind === 'human'
+async function renderSettings(keyNotice) {
   const [board, users] = await Promise.all([api('GET', '/board'), api('GET', '/users')])
-  const act = fn => attempt(async (...a) => { await fn(...a); renderSettings() })
-  const showKey = (name, key) => renderSettings(h('div', { class: 'box' }, `API key for ${name} (shown once):`, h('div', { class: 'key' }, key)))
-  const newCol = h('input', { placeholder: 'New column' }), newProj = h('input', { placeholder: 'New project' })
-  const agentName = h('input', { placeholder: 'agent-name' })
-  const hu = { name: h('input', { placeholder: 'name' }), email: h('input', { placeholder: 'email', type: 'email' }), password: h('input', { placeholder: 'password', type: 'password' }) }
-  sdlg.replaceChildren(h('div', { class: 'dlg settings' },
-    h('div', { class: 'row' }, h('h2', {}, 'Settings'), h('span', { class: 'grow' }), h('button', { class: 'ghost', onclick: () => sdlg.close() }, 'Close')),
-    notice, !human && h('p', { class: 'dim' }, 'Only humans can change settings.'),
-    h('h3', {}, 'Columns'),
-    h('table', {}, board.columns.map((c, i) => h('tr', {},
-      h('td', {}, h('input', { value: c.name, onchange: act(e => api('PATCH', '/columns/' + c.slug, { name: e.target.value })) })),
-      h('td', { class: 'dim' }, c.slug), h('td', { class: 'dim' }, c.count + ' tickets'),
-      h('td', {}, h('button', { class: 'ghost', disabled: i === 0, onclick: act(() => api('PATCH', '/columns/' + c.slug, { index: i - 1 })) }, '←'),
-        h('button', { class: 'ghost', disabled: i === board.columns.length - 1, onclick: act(() => api('PATCH', '/columns/' + c.slug, { index: i + 1 })) }, '→'),
-        h('button', { class: 'danger', onclick: act(() => api('DELETE', '/columns/' + c.slug)) }, 'Delete'))))),
-    h('div', { class: 'row' }, newCol, h('button', { onclick: act(() => api('POST', '/columns', { name: newCol.value })) }, 'Add column')),
-    h('h3', {}, 'Projects'),
-    h('table', {}, board.projects.map(p => h('tr', {},
-      h('td', {}, h('input', { type: 'color', value: p.color, onchange: act(e => api('PATCH', '/projects/' + encodeURIComponent(p.name), { color: e.target.value })) })),
-      h('td', {}, h('input', { value: p.name, onchange: act(e => api('PATCH', '/projects/' + encodeURIComponent(p.name), { name: e.target.value })) })),
-      h('td', {}, h('input', { value: p.repo, placeholder: 'https://github.com/owner/repo', size: 36, onchange: act(e => api('PATCH', '/projects/' + encodeURIComponent(p.name), { repo: e.target.value || null })) })),
-      h('td', {}, h('button', { class: 'danger', onclick: act(() => confirm(`Delete project ${p.name}? Tickets keep existing without it.`) && api('DELETE', '/projects/' + encodeURIComponent(p.name))) }, 'Delete'))))),
-    h('div', { class: 'row' }, newProj, h('button', { onclick: act(() => api('POST', '/projects', { name: newProj.value, color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0') })) }, 'Add project')),
-    h('h3', {}, 'Users'),
-    h('table', {}, users.map(u => h('tr', {},
-      h('td', {}, who(u.name)), h('td', { class: 'dim' }, u.kind), h('td', { class: 'dim' }, u.email || ''), h('td', { class: 'dim' }, u.has_key ? 'has API key' : ''),
-      h('td', {}, h('button', { class: 'ghost', onclick: attempt(async () => confirm(`Issue a new API key for ${u.name}? The old one stops working.`) && showKey(u.name, (await api('POST', `/users/${u.name}/key`)).key)) }, 'New key'),
-        u.name !== S.me.name && h('button', { class: 'danger', onclick: act(() => confirm(`Delete user ${u.name}?`) && api('DELETE', '/users/' + u.name)) }, 'Delete'))))),
-    h('div', { class: 'row' }, agentName, h('button', { onclick: attempt(async () => showKey(agentName.value, (await api('POST', '/users', { kind: 'agent', name: agentName.value })).key)) }, 'Add agent')),
-    h('div', { class: 'row' }, hu.name, hu.email, hu.password, h('button', { onclick: act(() => api('POST', '/users', { kind: 'human', name: hu.name.value, email: hu.email.value, password: hu.password.value })) }, 'Add human')),
-    h('p', { class: 'dim' }, 'Agents: ', h('a', { href: '/api', target: '_blank' }, 'API docs'), ' · base URL ', h('code', {}, location.origin))))
+  const act = fn => attempt(async (...a) => { await fn(...a); await renderSettings() })
+  const addForm = (onsubmit, ...fields) => h('form', { class: 'add', onsubmit: e => { e.preventDefault(); onsubmit() } }, ...fields, h('button', { class: 'btn primary' }, icon('plus'), 'Add'))
+  const tab = (key, iconName, label) => h('button', { type: 'button', class: 'btn' + (S.tab === key ? ' on' : ''), onclick: () => { S.tab = key; renderSettings() } }, icon(iconName), label)
+  const enc = encodeURIComponent
+  let body
+  if (S.tab === 'columns') {
+    const name = h('input', { placeholder: 'New column name', required: true })
+    body = [h('div', { class: 'list' }, board.columns.map((c, i) => h('div', { class: 'item' },
+      h('input', { class: 'ghost-input grow', value: c.name, 'aria-label': 'Column name', onchange: act(e => api('PATCH', '/columns/' + c.slug, { name: e.target.value })) }),
+      h('span', { class: 'count' }, c.count),
+      h('div', { class: 'actions' },
+        btn('chevron-left', 'Move left', act(() => api('PATCH', '/columns/' + c.slug, { index: i - 1 })), 'ghost icon sm'),
+        btn('chevron-right', 'Move right', act(() => api('PATCH', '/columns/' + c.slug, { index: i + 1 })), 'ghost icon sm'),
+        btn('trash-2', 'Delete column', act(() => api('DELETE', '/columns/' + c.slug)), 'ghost icon sm danger'))))),
+      addForm(act(() => api('POST', '/columns', { name: name.value })), name)]
+  } else if (S.tab === 'projects') {
+    const name = h('input', { placeholder: 'New project name', required: true })
+    const repoUrl = v => v.trim() ? v.trim().replace(/^(?!https?:\/\/)/, 'https://') : null
+    body = [h('div', { class: 'list' }, board.projects.map(p => h('div', { class: 'item' },
+      h('input', { type: 'color', class: 'swatch', value: p.color, 'aria-label': 'Color', onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { color: e.target.value })) }),
+      h('input', { class: 'ghost-input', value: p.name, size: 14, 'aria-label': 'Project name', onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { name: e.target.value })) }),
+      h('input', { class: 'ghost-input grow', value: p.repo, placeholder: 'github.com/owner/repo', 'aria-label': 'Repository URL',
+        onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { repo: repoUrl(e.target.value) })) }),
+      h('div', { class: 'actions' }, btn('trash-2', 'Delete project', act(() => confirm(`Delete project ${p.name}? Its tickets stay.`) && api('DELETE', '/projects/' + enc(p.name))), 'ghost icon sm danger'))))),
+      addForm(act(() => api('POST', '/projects', { name: name.value, color: randomColor() })), name)]
+  } else {
+    const agent = S.newKind === 'agent'
+    const name = h('input', { placeholder: agent ? 'agent-name' : 'username', required: true, pattern: '[\\w.\\-]+', title: 'letters, digits, _ . -' })
+    const email = h('input', { type: 'email', placeholder: 'email', required: true }), password = h('input', { type: 'password', placeholder: 'password (8+)', minlength: 8, required: true })
+    const showKey = (n, key) => renderSettings(h('div', { class: 'keybox' }, icon('key-round'),
+      h('div', { class: 'grow' }, h('div', { class: 'dim' }, `API key for ${n}, shown once:`), h('code', {}, key)), btn('copy', 'Copy key', () => copy(key))))
+    body = [keyNotice, h('div', { class: 'list' }, users.map(u => h('div', { class: 'item' },
+      h('span', { class: 'who grow' }, avatar(u.name, u.kind), u.name, h('span', { class: 'faint' }, u.email || (u.has_key ? 'API key' : ''))),
+      h('div', { class: 'actions' },
+        btn('key-round', 'New API key', attempt(async () => confirm(`Issue a new API key for ${u.name}? The old one stops working immediately.`) && showKey(u.name, (await api('POST', `/users/${enc(u.name)}/key`)).key)), 'ghost icon sm'),
+        u.name !== S.me.name && btn('trash-2', 'Delete user', act(() => confirm(`Delete ${u.name}?`) && api('DELETE', '/users/' + enc(u.name))), 'ghost icon sm danger'))))),
+      h('div', { class: 'tabs kind' }, ...[['agent', 'bot', 'Agent'], ['human', 'user', 'Human']].map(([k, i, l]) =>
+        h('button', { type: 'button', class: 'btn' + (S.newKind === k ? ' on' : ''), onclick: () => { S.newKind = k; renderSettings() } }, icon(i), l))),
+      agent
+        ? addForm(attempt(async () => showKey(name.value, (await api('POST', '/users', { kind: 'agent', name: name.value })).key)), name)
+        : addForm(act(() => api('POST', '/users', { kind: 'human', name: name.value, email: email.value, password: password.value })), name, email, password)]
+  }
+  sdlg.replaceChildren(
+    h('div', { class: 'dlg-top' }, h('div', { class: 'tabs' }, tab('columns', 'columns-3', 'Columns'), tab('projects', 'folder-git-2', 'Projects'), tab('people', 'users', 'People')),
+      h('span', { class: 'grow' }), btn('x', 'Close', () => sdlg.close())),
+    h('div', { class: 'dlg-body' }, body,
+      h('p', { class: 'faint footnote' }, 'Agents read the API docs at ', h('a', { href: '/api', target: '_blank' }, location.origin + '/api'))))
+}
+function copy(text) {
+  if (navigator.clipboard) return navigator.clipboard.writeText(text).then(() => toast('Copied', false), () => toast('Copy failed; select the key instead'))
+  const r = document.createRange(); r.selectNodeContents(sdlg.querySelector('.keybox code')); getSelection().removeAllRanges(); getSelection().addRange(r)
+  toast(document.execCommand('copy') ? 'Copied' : 'Select the key and copy it', false)
 }
 
 start()
