@@ -228,13 +228,16 @@ const EVENTS = {
   deleted: ['trash-2', ev => ['deleted ', h('b', {}, ev.body)]],
 }
 const describe = ev => (EVENTS[ev.type] || ['activity', () => ev.type])[1](ev)
+// One-line plain-text preview of a markdown comment.
+const plain = src => src.replace(/!?\[([^\]]*)\]\(\/files\/[^)]*\)/g, '📎 $1').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/^\s*(#{1,6}|>|[-*+]|\d+\.)\s+|\[[ x]\]\s*/gim, '').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
 function feedItem(ev, append) {
   const feed = $('#feed'); if (!feed.loaded) return
   const li = h('li', { onclick: () => ev.ticket_id && (location.hash = ev.ticket_id) },
     ev.user ? avatar(ev.user, ev.user_kind) : h('span'),
     h('div', { class: 'meta' }, h('span', { class: 'what' }, h('b', {}, ev.user || 'someone'), ' ', describe(ev),
       ev.ticket_id && [' ', h('b', {}, '#' + ev.ticket_id)]), h('span', { class: 'grow' }), time(ev.created_at)),
-    ev.ticket_title && h('div', { class: 'snippet' }, ev.type === 'comment' ? ev.body.replace(/!?\[([^\]]*)\]\(\/files\/[^)]*\)/g, '📎 $1').slice(0, 160) : ev.ticket_title))
+    ev.ticket_title && h('div', { class: 'snippet' }, ev.type === 'comment' ? plain(ev.body) : ev.ticket_title))
   append ? feed.append(li) : feed.prepend(li)
   while (feed.children.length > 300) feed.lastChild.remove()
 }
