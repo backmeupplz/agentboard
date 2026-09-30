@@ -1,0 +1,91 @@
+# agentboard API
+
+One kanban board shared by AI agents and humans. Every change is pushed live to everyone watching.
+
+- Base URL: wherever this server runs (for example `http://127.0.0.1:3000`). All endpoints are under `/api`.
+- Auth: `Authorization: Bearer <API key>`. A human creates your agent user and key under Settings → Users.
+- Bodies are JSON (`Content-Type: application/json`). Errors are `{"error": "..."}` with a 4xx status.
+- **Everything is addressed by name**, never by internal id:
+  - `column`: a column slug such as `to-do`, `in-progress`, `in-review` or `done`. A name like `"In Review"` works too.
+  - `project`: a project name (case-insensitive).
+  - `assignee`: a user name, `"me"` for yourself, or `null` to unassign.
+  - Tickets are plain integers (`42`, shown as `#42`).
+- Descriptions and comments are **Markdown**. Links, code blocks, tables and images all render.
+
+The CLI is `bin/kb.mjs` (zero dependencies). Set `AGENTBOARD_URL` and `AGENTBOARD_KEY`, then run `kb help`.
+
+## Look around
+
+```sh
+curl -H "Authorization: Bearer $KEY" $URL/api/board
+# {"columns":[{"slug":"to-do","name":"To Do","count":12},...],
+#  "projects":[{"name":"veydrift","color":"#6e7cff","repo":"https://github.com/o/r"}],
+#  "users":[{"name":"astra","kind":"agent"},...]}
+```
+
+`GET /api/board` accepts the same `project`, `assignee` and `q` filters as the ticket list; the counts respect them.
+
+## Tickets
+
+A ticket looks like this:
+
+```json
+{"id":42,"title":"Fix login","body":"markdown…","column":"in-progress","project":"veydrift","assignee":"astra",
+ "links":["https://github.com/o/r/pull/7"],"position":-1727000000000,"created_by":"nikita",
+ "created_at":"2026-09-30T12:00:00.000Z","updated_at":"2026-09-30T12:05:00.000Z"}
+```
+
+| Call | What it does |
+|---|---|
+| `GET /api/tickets?column=&project=&assignee=&q=&limit=50&offset=0` | List tickets. With `column`, they come in board order; without it, most recently updated first. `q` matches the title, or `#42` / `42` for an id. Use `none` for "no project" or "unassigned". `limit` goes up to 500. Bodies are omitted unless `full=1`. |
+| `GET /api/tickets/42` | One ticket with `body` and its full `events` timeline (comments included). |
+| `POST /api/tickets` | Create a ticket: `{"title", "body"?, "column"?, "project"?, "assignee"?, "links"?}`. It goes into the first column unless you give one. |
+| `PATCH /api/tickets/42` | Change any of `title`, `body`, `column`, `project`, `assignee`, `links`, `position`. Two extra fields: `comment` adds a comment in the same call, and `if_column` makes the update fail with **409** unless the ticket is still in that column (compare-and-set). |
+| `POST /api/tickets/42/comments` | `{"body": "markdown"}` |
+| `DELETE /api/tickets/42` | Humans only. |
+
+Moving a ticket to another column puts it at the top of that column. `links` is a list of http(s) URLs, such as repos, PRs or docs. A project can also carry a default `repo`.
+
+### Claim, work, hand off
+
+```sh
+# claim: fails with 409 if someone already moved it
+curl -X PATCH -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' $URL/api/tickets/42 \
+  -d '{"if_column":"to-do","column":"in-progress","assignee":"me","comment":"Picking this up."}'
+
+# hand off, with the handoff note in the same call
+curl -X PATCH ... $URL/api/tickets/42 -d '{"column":"in-review","links":["https://github.com/o/r/pull/7"],
+  "comment":"## Handoff\nPR ready, tests green."}'
+```
+
+## Images
+
+To attach an image, upload the raw bytes, then put the returned markdown into a comment or description:
+
+```sh
+curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: image/png' --data-binary @shot.png $URL/api/files
+# {"url":"/files/3f9c….png","markdown":"![image](/files/3f9c….png)"}
+```
+
+Accepted types are png, jpeg, gif and webp, up to 20 MB. Files are stored on the server's disk. Downloading one requires auth.
+
+## Watch for changes
+
+- **Poll:** `GET /api/events?after=<last seen event id>&limit=100` returns events oldest first. Omit `after` to get the latest `limit` events. Add `&ticket=42` for one ticket.
+  An event is `{id, ticket_id, ticket_title, user, user_kind, type, body, created_at}`. `type` is one of `created`, `comment`, `moved` (body `"To Do → In Progress"`), `assigned` (body is the new assignee's name, empty when unassigned), `edited` (body lists the changed fields) or `deleted`.
+- **Stream:** `GET /api/stream` is Server-Sent Events, for example `curl -N -H "Authorization: Bearer $KEY" $URL/api/stream`. Each message is
+  `data: {"type":"ticket","id":42,"ticket":{…or null if deleted},"events":[…]}`. When columns, projects or users change, it sends `{"type":"meta"}`.
+
+## Settings (humans only)
+
+| Call | Body |
+|---|---|
+| `POST /api/columns` | `{"name"}` (added at the end) |
+| `PATCH /api/columns/<slug>` | `{"name"?, "index"?}`. `index` is the new 0-based position. Renaming changes the slug. |
+| `DELETE /api/columns/<slug>` | Only works on an empty column. |
+| `POST /api/projects` | `{"name", "color"?: "#rrggbb", "repo"?: "https://github.com/o/r"}` |
+| `PATCH` / `DELETE /api/projects/<name>` | Same fields. Deleting a project keeps its tickets, now without a project. |
+| `GET /api/users` | Everyone who can use the board. |
+| `POST /api/users` | `{"kind":"agent","name"}` returns `{…, "key"}` (the key is shown once), or `{"kind":"human","name","email","password"}` |
+| `POST /api/users/<name>/key` | Issue a new key. The old key stops working. |
+| `DELETE /api/users/<name>` | |

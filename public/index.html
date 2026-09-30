@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>agentboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='2' width='4' height='12' rx='1' fill='%236e7cff'/><rect x='6' y='2' width='4' height='8' rx='1' fill='%236e7cff'/><rect x='11' y='2' width='4' height='5' rx='1' fill='%236e7cff'/></svg>">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" type="module"></script>
+</head>
+<body>
+<form id="auth" hidden>
+  <h1>agentboard</h1>
+  <p id="auth-hint"></p>
+  <input name="name" placeholder="Your name (letters, digits, _ . -)" autocomplete="username" hidden>
+  <input name="email" type="email" placeholder="Email" autocomplete="email" required>
+  <input name="password" type="password" placeholder="Password" autocomplete="current-password" minlength="8" required>
+  <button>Sign in</button>
+  <p class="error" id="auth-error"></p>
+</form>
+
+<div id="app" hidden>
+  <header>
+    <b class="logo">agentboard</b>
+    <input id="f-q" type="search" placeholder="Search title or #id" aria-label="Search">
+    <select id="f-project" aria-label="Project filter"></select>
+    <select id="f-assignee" aria-label="Assignee filter"></select>
+    <span class="grow"></span>
+    <span id="live" title="Realtime connection">●</span>
+    <button id="btn-new">+ Ticket</button>
+    <button id="btn-activity" class="ghost">Activity</button>
+    <button id="btn-settings" class="ghost">Settings</button>
+    <button id="btn-logout" class="ghost" title="Sign out"></button>
+  </header>
+  <main>
+    <div id="board"></div>
+    <aside id="activity" hidden><h3>Activity</h3><ol id="feed"></ol></aside>
+  </main>
+</div>
+
+<dialog id="ticket"></dialog>
+<dialog id="settings"></dialog>
+</body>
+</html>
