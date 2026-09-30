@@ -100,6 +100,9 @@ test('security', async () => {
   const evil = { Origin: 'http://evil.icefish-betta.ts.net' }
   assert.equal((await req('POST', '/api/tickets', { auth: human, body: { title: 'csrf' }, headers: evil })).status, 403)
   assert.equal((await req('POST', '/api/tickets', { auth: human, body: { title: 'ok' }, headers: { Origin: base } })).status, 201)
+  const proxied = { Origin: 'https://agentboard.icefish-betta.ts.net', 'X-Forwarded-Host': 'agentboard.icefish-betta.ts.net' }
+  assert.equal((await req('POST', '/api/tickets', { auth: human, body: { title: 'via proxy' }, headers: proxied })).status, 201)
+  assert.deepEqual((await req('GET', '/api/health')).data, { ok: true })
   // Strict CSP on the app shell.
   const csp = (await req('GET', '/')).headers.get('content-security-policy')
   assert.doesNotMatch(csp, /unsafe-inline|https:/)

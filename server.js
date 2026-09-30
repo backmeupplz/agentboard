@@ -202,7 +202,14 @@ function loginAllowed(ip) {
   return (failures.get(ip)?.n ?? 0) < LOGIN_MAX
 }
 const loginFailed = ip => { const f = failures.get(ip) ?? { n: 0, since: Date.now() }; f.n++; failures.set(ip, f) }
-// A fresh install needs this token (printed at startup) to create the owner, so nobody else can claim it first.
+// Containers can create the owner from env on first start; otherwise a fresh install needs the one-time
+// token printed at startup, so nobody else can claim it first.
+if (!q('SELECT 1 FROM users').get() && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+  const local = process.env.ADMIN_EMAIL.split('@')[0].replace(/[^\w.-]/g, '')
+  const name = process.env.ADMIN_NAME || (local && !['me', 'none'].includes(local.toLowerCase()) ? local.slice(0, 64) : 'admin')
+  createUser({ kind: 'human', name, email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD })
+  console.log(`created owner ${name} <${process.env.ADMIN_EMAIL}> from ADMIN_EMAIL/ADMIN_PASSWORD`)
+}
 let setupToken = q('SELECT 1 FROM users').get() ? null : randomBytes(16).toString('hex')
 function createUser(b) {
   need(['human', 'agent'].includes(b.kind), 400, 'kind must be "human" or "agent"')
@@ -241,6 +248,7 @@ const ticketParam = s => { const n = +String(s).replace(/^#/, ''); need(Number.i
 
 const routes = [
   ['GET', '/api', (req, res) => send(res, 200, fs.readFileSync(path.join(ROOT, 'API.md')), MIME['.md']), { public: true }],
+  ['GET', '/api/health', () => ({ ok: true }), { public: true }],
   ['POST', '/api/setup', async (req, res) => {
     const b = await json(req)
     need(setupToken, 409, 'already set up')
@@ -385,8 +393,9 @@ const server = http.createServer(async (req, res) => {
   try {
     // CSRF: browsers always send Origin on cross-origin writes. Other *.ts.net hosts count as "same-site", so SameSite alone isn't enough.
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin) {
+      // X-Forwarded-Host comes from a reverse proxy (e.g. a Tailscale sidecar); a cross-site page can't set it without a CORS preflight.
       let host; try { host = new URL(req.headers.origin).host } catch {}
-      need(host === req.headers.host, 403, 'cross-origin request refused')
+      need(host && [req.headers.host, req.headers['x-forwarded-host']].includes(host), 403, 'cross-origin request refused')
     }
     let pathname
     try { pathname = decodeURIComponent(url.pathname) } catch { throw new HttpError(400, 'bad url') }
