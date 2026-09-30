@@ -25,10 +25,10 @@ The server binds to localhost by default. To reach it from other machines, put i
 
 ```sh
 docker run -d --name agentboard -p 3000:3000 -v agentboard:/data \
-  -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='a long password' backmeupplz/agentboard
+  -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='a long password' ghcr.io/backmeupplz/agentboard
 ```
 
-`ADMIN_EMAIL` and `ADMIN_PASSWORD` (and optionally `ADMIN_NAME`) create the owner on first start. Without them, the owner is created through the setup link in `docker logs agentboard`. Data lives in `/data`. Images are published for amd64 and arm64 on every GitHub release.
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` (and optionally `ADMIN_NAME`) create the owner on first start. Without them, the owner is created through the setup link in `docker logs agentboard`. Data lives in `/data`. Images for amd64 and arm64 are published to GitHub Container Registry on every GitHub release.
 
 The app is also available in [MyGround](https://myground.online) as `myground app install agentboard`.
 
