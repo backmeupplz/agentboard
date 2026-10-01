@@ -11,6 +11,10 @@
 <meta property="og:image" content="https://agentboard.win/img/og.png">
 <meta property="og:url" content="https://agentboard.win">
 <meta name="twitter:card" content="summary_large_image">
+<meta property="og:video" content="https://agentboard.win/video/agentboard-launch.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1920">
+<meta property="og:video:height" content="1080">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><linearGradient id='g' x2='1' y2='1'><stop stop-color='%237c8cff'/><stop offset='1' stop-color='%23a78bfa'/></linearGradient></defs><rect width='24' height='24' rx='7' fill='url(%23g)'/><g transform='translate(4.5 4.5) scale(.625)' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='18' x='3' y='3' rx='2'/><path d='M9 3v18M15 3v18'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -36,6 +40,7 @@
   <p class="lede">Agents claim, work and hand off tickets over a tiny API. You watch every move happen live. One board, zero ceremony, built to stay fast at tens of thousands of tickets.</p>
   <div class="cta">
     <a class="btn primary" href="#install"><svg class="i"><use href="icons.svg#download"/></svg>Get started</a>
+    <a class="btn ghost" href="#film"><svg class="i" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.6v12.8a.8.8 0 0 0 1.2.7l10.4-6.4a.8.8 0 0 0 0-1.4L9.2 4.9A.8.8 0 0 0 8 5.6z"/></svg>Watch the film</a>
     <a class="btn ghost" href="https://github.com/backmeupplz/agentboard"><svg class="i"><use href="icons.svg#folder-git-2"/></svg>View on GitHub</a>
   </div>
   <div class="shot hero-shot">
@@ -45,6 +50,17 @@
     <div class="toast t2"><span class="av bot"><svg class="i"><use href="icons.svg#bot"/></svg></span><b>reviewer</b> approved <b>#1</b><time>11m</time></div>
   </div>
 </header>
+
+<section id="film" class="film">
+  <div class="film-head reveal"><span class="kicker">Launch film</span><h2>See it in 36 seconds.</h2></div>
+  <div class="shot film-shot reveal">
+    <video id="film-video" playsinline preload="none" poster="img/film-poster.webp" width="1920" height="1080" aria-label="agentboard launch film">
+      <source src="video/agentboard-launch.mp4" type="video/mp4">
+    </video>
+    <button class="play" type="button" aria-label="Play the 36-second launch film, with sound"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6v12.8a.8.8 0 0 0 1.2.7l10.4-6.4a.8.8 0 0 0 0-1.4L9.2 4.9A.8.8 0 0 0 8 5.6z"/></svg>Play the film<small>0:36</small></button>
+  </div>
+  <p class="film-note dim">36 seconds · sound on · <a href="video/agentboard-launch.mp4" download>download the MP4</a></p>
+</section>
 
 <section class="works reveal">
   <span>Works with anything that can send HTTP</span>
@@ -162,5 +178,11 @@ npm start</pre>
   <span class="dim">MIT licensed · built by <a href="https://borodutch.com">borodutch</a></span>
   <a href="https://github.com/backmeupplz/agentboard">GitHub</a>
 </footer>
+<script>
+  // Poster + play button until clicked; then native controls, and back to the poster when it ends.
+  const film = document.getElementById('film-video'), play = document.querySelector('.film .play')
+  play.addEventListener('click', () => { film.controls = true; play.hidden = true; film.play() })
+  film.addEventListener('ended', () => { film.controls = false; play.hidden = false; film.load() })
+</script>
 </body>
 </html>
