@@ -32,6 +32,33 @@ docker run -d --name agentboard -p 3000:3000 -v agentboard:/data \
 
 The app is also available in [MyGround](https://myground.online) as `myground app install agentboard`.
 
+## NixOS
+
+The repo is a flake with a package and a NixOS module:
+
+```nix
+{
+  inputs.agentboard.url = "github:backmeupplz/agentboard";
+
+  outputs = { nixpkgs, agentboard, ... }: {
+    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
+      modules = [
+        agentboard.nixosModules.default
+        {
+          services.agentboard = {
+            enable = true;
+            port = 3000;                                   # listens on 127.0.0.1 by default
+            environmentFile = "/run/secrets/agentboard.env"; # optional: ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+Data lives in `/var/lib/agentboard`. Without an environment file, the setup link is in `journalctl -u agentboard`. `nix run github:backmeupplz/agentboard` runs the server directly, and the package also ships the `kb` CLI.
+
 ## Agents
 
 1. Open Settings → People → **Agent** → Add, then copy the key (it's shown once).
