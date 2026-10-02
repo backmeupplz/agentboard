@@ -1,5 +1,4 @@
-self:
-{
+self: {
   name = "agentboard";
 
   nodes.machine = { pkgs, ... }: {

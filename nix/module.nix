@@ -1,5 +1,10 @@
 self:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.agentboard;
@@ -82,7 +87,11 @@ in
         ProtectKernelTunables = true;
         ProtectProc = "invisible";
         ProtectSystem = "strict";
-        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
+        RestrictAddressFamilies = [
+          "AF_INET"
+          "AF_INET6"
+          "AF_UNIX"
+        ];
         RestrictNamespaces = true;
         RestrictRealtime = true;
         SystemCallArchitectures = "native";

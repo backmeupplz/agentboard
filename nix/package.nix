@@ -1,4 +1,9 @@
-{ lib, buildNpmPackage, nodejs_24, makeWrapper }:
+{
+  lib,
+  buildNpmPackage,
+  nodejs_24,
+  makeWrapper,
+}:
 
 let
   manifest = lib.importJSON ../package.json;
