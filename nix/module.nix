@@ -8,6 +8,18 @@
 let
   cfg = config.services.agentboard;
   bindsLowPort = cfg.port < 1024;
+  listensOnWildcard = lib.elem cfg.host [
+    "0.0.0.0"
+    "::"
+  ];
+  listensOnLoopback =
+    lib.hasPrefix "127." cfg.host
+    || lib.elem cfg.host [
+      "localhost"
+      "::1"
+      "0:0:0:0:0:0:0:1"
+    ];
+  needsAddress = !(listensOnLoopback || listensOnWildcard);
 in
 {
   options.services.agentboard = {
@@ -23,7 +35,14 @@ in
     host = lib.mkOption {
       type = lib.types.str;
       default = "127.0.0.1";
-      description = "Address to listen on. Keep it on localhost and put a TLS proxy in front to reach it from other machines.";
+      description = ''
+        Address to listen on. Keep it on localhost and put a TLS proxy in
+        front to reach it from other machines. The proxy must forward the
+        original `Host` (or set `X-Forwarded-Host`) and `X-Forwarded-Proto`,
+        or browser sign-in is refused as cross-origin. With nginx, that is
+        `services.nginx.recommendedProxySettings = true`; Caddy and
+        `tailscale serve` do it already.
+      '';
     };
 
     port = lib.mkOption {
@@ -39,7 +58,7 @@ in
     };
 
     environmentFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
+      type = lib.types.nullOr (lib.types.strMatching "/.+");
       default = null;
       example = "/run/secrets/agentboard.env";
       description = ''
@@ -58,27 +77,21 @@ in
 
   config = lib.mkIf cfg.enable {
     warnings =
-      lib.optional
-        (
-          cfg.openFirewall
-          && lib.elem cfg.host [
-            "127.0.0.1"
-            "::1"
-            "localhost"
-          ]
-        )
+      lib.optional (cfg.openFirewall && listensOnLoopback)
         "services.agentboard.openFirewall opens port ${toString cfg.port}, but agentboard listens on ${cfg.host}, so connections from other machines are still refused. Set services.agentboard.host as well.";
 
     systemd.services.agentboard = {
       description = "agentboard";
       wantedBy = [ "multi-user.target" ];
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
+      wants = lib.optional needsAddress "network-online.target";
+      after = [ "network.target" ] ++ lib.optional needsAddress "network-online.target";
+      startLimitIntervalSec = 60;
+      startLimitBurst = 5;
 
       environment = {
         HOST = cfg.host;
         PORT = toString cfg.port;
-        DATA_DIR = "/var/lib/agentboard";
+        DATA_DIR = "%S/agentboard";
       };
 
       serviceConfig = {
@@ -115,6 +128,10 @@ in
         RestrictNamespaces = true;
         RestrictRealtime = true;
         SystemCallArchitectures = "native";
+        SystemCallFilter = [
+          "@system-service"
+          "~@privileged"
+        ];
       };
     };
 

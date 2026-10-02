@@ -8,17 +8,22 @@
 
 let
   manifest = lib.importJSON ../package.json;
+  runtimeFiles = [
+    "package.json"
+    "server.js"
+    "API.md"
+    "public"
+    "bin"
+  ];
   src = lib.fileset.toSource {
     root = ./..;
-    fileset = lib.fileset.unions [
-      ../package.json
-      ../package-lock.json
-      ../server.js
-      ../API.md
-      ../public
-      ../bin
-      ../test.js
-    ];
+    fileset = lib.fileset.unions (
+      map (name: ../. + "/${name}") runtimeFiles
+      ++ [
+        ../package-lock.json
+        ../test.js
+      ]
+    );
   };
 in
 buildNpmPackage {
@@ -44,9 +49,10 @@ buildNpmPackage {
   installPhase = ''
     runHook preInstall
     mkdir -p $out/lib/agentboard $out/bin
-    cp -r package.json server.js API.md public bin node_modules $out/lib/agentboard/
+    cp -r ${lib.concatStringsSep " " runtimeFiles} node_modules $out/lib/agentboard/
     makeWrapper ${lib.getExe nodejs_24} $out/bin/agentboard \
-      --add-flags "--disable-warning=ExperimentalWarning $out/lib/agentboard/server.js"
+      --add-flags "--disable-warning=ExperimentalWarning $out/lib/agentboard/server.js" \
+      --set-default DATA_DIR data
     makeWrapper ${lib.getExe nodejs_24} $out/bin/kb \
       --add-flags "$out/lib/agentboard/bin/kb.mjs"
     runHook postInstall
