@@ -3,22 +3,26 @@ self: {
 
   nodes.machine = {
     imports = [ self.nixosModules.agentboard ];
-    environment.etc."agentboard.env".text = ''
-      ADMIN_EMAIL=owner@example.com
-      ADMIN_PASSWORD=a long password
-    '';
     services.agentboard = {
       enable = true;
-      environmentFile = "/etc/agentboard.env";
+      port = 80;
+      environmentFile = "/run/secrets/agentboard.env";
     };
   };
 
   testScript = ''
+    machine.wait_for_unit("multi-user.target")
+    machine.succeed(
+      "install -d -m 700 /run/secrets",
+      "printf 'ADMIN_EMAIL=owner@example.com\\nADMIN_PASSWORD=a long password\\n' > /run/secrets/agentboard.env",
+      "chmod 600 /run/secrets/agentboard.env",
+      "systemctl restart agentboard",
+    )
     machine.wait_for_unit("agentboard.service")
-    machine.wait_for_open_port(3000)
-    machine.succeed("curl -sf http://127.0.0.1:3000/api/health")
-    machine.succeed("curl -sf http://127.0.0.1:3000/api | grep -q agentboard")
-    machine.succeed("curl -sf http://127.0.0.1:3000/vendor/markdown-it.mjs >/dev/null")
+    machine.wait_for_open_port(80)
+    machine.succeed("curl -sf http://127.0.0.1/api/health")
+    machine.succeed("curl -sf http://127.0.0.1/api | grep -q agentboard")
+    machine.succeed("curl -sf http://127.0.0.1/vendor/markdown-it.mjs >/dev/null")
     machine.wait_until_succeeds("journalctl -u agentboard | grep -q 'created owner'")
     machine.succeed("test -f /var/lib/agentboard/board.db")
   '';

@@ -1,17 +1,13 @@
 {
   lib,
   buildNpmPackage,
+  importNpmLock,
   nodejs_24,
   makeWrapper,
 }:
 
 let
   manifest = lib.importJSON ../package.json;
-in
-buildNpmPackage {
-  pname = manifest.name;
-  inherit (manifest) version;
-
   src = lib.fileset.toSource {
     root = ./..;
     fileset = lib.fileset.unions [
@@ -24,14 +20,21 @@ buildNpmPackage {
       ../test.js
     ];
   };
+in
+buildNpmPackage {
+  pname = manifest.name;
+  inherit (manifest) version;
+  inherit src;
 
   nodejs = nodejs_24;
-  npmDepsHash = "sha256-bKtC5X/ve61hQOUTQYcA0hXu4zv2HfuVeNMXEaYYDGk=";
+  npmDeps = importNpmLock { npmRoot = src; };
+  npmConfigHook = importNpmLock.npmConfigHook;
   dontNpmBuild = true;
 
   nativeBuildInputs = [ makeWrapper ];
 
   doCheck = true;
+  __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
     node --test
@@ -40,12 +43,10 @@ buildNpmPackage {
 
   installPhase = ''
     runHook preInstall
-    npm prune --omit=dev
     mkdir -p $out/lib/agentboard $out/bin
     cp -r package.json server.js API.md public bin node_modules $out/lib/agentboard/
     makeWrapper ${lib.getExe nodejs_24} $out/bin/agentboard \
-      --add-flags "--disable-warning=ExperimentalWarning $out/lib/agentboard/server.js" \
-      --set-default NODE_ENV production
+      --add-flags "--disable-warning=ExperimentalWarning $out/lib/agentboard/server.js"
     makeWrapper ${lib.getExe nodejs_24} $out/bin/kb \
       --add-flags "$out/lib/agentboard/bin/kb.mjs"
     runHook postInstall
