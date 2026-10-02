@@ -1,14 +1,15 @@
 self: {
   name = "agentboard";
 
-  nodes.machine = { pkgs, ... }: {
+  nodes.machine = {
     imports = [ self.nixosModules.agentboard ];
+    environment.etc."agentboard.env".text = ''
+      ADMIN_EMAIL=owner@example.com
+      ADMIN_PASSWORD=a long password
+    '';
     services.agentboard = {
       enable = true;
-      environmentFile = pkgs.writeText "agentboard.env" ''
-        ADMIN_EMAIL=owner@example.com
-        ADMIN_PASSWORD=a long password
-      '';
+      environmentFile = "/etc/agentboard.env";
     };
   };
 

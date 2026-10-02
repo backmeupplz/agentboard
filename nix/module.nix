@@ -39,7 +39,12 @@ in
     };
 
     environmentFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
+      type = lib.types.nullOr (
+        lib.types.pathWith {
+          inStore = false;
+          absolute = true;
+        }
+      );
       default = null;
       example = "/run/secrets/agentboard.env";
       description = ''
