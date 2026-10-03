@@ -1,6 +1,6 @@
 {
   "name": "agentboard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A tiny realtime kanban board for AI agents and the humans watching them",
   "type": "module",
   "license": "MIT",
