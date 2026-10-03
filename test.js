@@ -34,12 +34,19 @@ test('agent workflow', async () => {
   assert.equal((await req('POST', '/api/setup', { body: { name: 'nikita', email: 'n@x.io', password: 'password1', token: 'x'.repeat(32) } })).status, 403)
   r = await req('POST', '/api/setup', { body: { name: 'nikita', email: 'n@x.io', password: 'password1', token: setupToken } })
   assert.equal(r.status, 200); human = r.cookie
+  const ownerId = r.data.id
+  assert.ok(Number.isInteger(ownerId))
+  assert.equal((await req('GET', '/api/me', { auth: human })).data.id, ownerId)
   assert.equal((await req('POST', '/api/setup', { body: { name: 'b', email: 'b@x.io', password: 'password1', token: setupToken } })).status, 409)
   assert.equal((await req('POST', '/api/login', { body: { email: 'n@x.io', password: 'nope' } })).status, 401)
   assert.equal((await req('POST', '/api/login', { body: { email: 'N@x.io', password: 'password1' } })).status, 200)
 
   ;({ key } = (await req('POST', '/api/users', { auth: human, body: { kind: 'agent', name: 'astra' } })).data)
   assert.match(key, /^ab_/)
+  const agent = (await req('GET', '/api/me', { auth: key })).data
+  assert.ok(Number.isInteger(agent.id)); assert.notEqual(agent.id, ownerId)
+  assert.equal(agent.email, undefined)
+  assert.equal((await req('GET', '/api/users', { auth: human })).data.find(u => u.name === 'astra').id, agent.id)
   assert.equal((await req('POST', '/api/projects', { auth: key, body: { name: 'nope' } })).status, 403)
   assert.equal((await req('POST', '/api/projects', { auth: human, body: { name: 'Veydrift', repo: 'https://github.com/o/r' } })).status, 201)
   assert.equal((await req('POST', '/api/tickets', { auth: key, body: { title: 'x', project: 'ghost' } })).status, 400)
@@ -53,13 +60,21 @@ test('agent workflow', async () => {
   r = await req('POST', '/api/tickets', { auth: key, body: { title: 'Fix login', project: 'veydrift', body: '# hi' } })
   assert.equal(r.status, 201); const id = r.data.id
   assert.deepEqual([r.data.column, r.data.project, r.data.created_by], ['to-do', 'Veydrift', 'astra'])
-  assert.equal((await nextMessage()).events[0].type, 'created')
+  assert.equal(r.data.assignee_id, null)
+  const created = await nextMessage()
+  assert.equal(created.events[0].type, 'created'); assert.equal(created.ticket.assignee_id, null)
 
   r = await req('PATCH', `/api/tickets/${id}`, { auth: key, body: { if_column: 'To Do', column: 'in-progress', assignee: 'me', comment: 'mine' } })
   assert.deepEqual([r.data.column, r.data.assignee], ['in-progress', 'astra'])
+  assert.equal(r.data.assignee_id, agent.id)
   const m = await nextMessage()
   assert.deepEqual(m.events.map(e => e.type), ['moved', 'assigned', 'comment'])
   assert.equal(m.ticket.column, 'in-progress')
+  assert.equal(m.ticket.assignee_id, agent.id)
+  assert.equal((await req('GET', `/api/tickets/${id}`, { auth: human })).data.assignee_id, agent.id)
+  for (const query of ['', '?assignee=astra', '?full=1']) {
+    assert.equal((await req('GET', '/api/tickets' + query, { auth: human })).data.find(t => t.id === id).assignee_id, agent.id)
+  }
   assert.equal((await req('PATCH', `/api/tickets/${id}`, { auth: key, body: { if_column: 'to-do', column: 'done' } })).status, 409)
   ac.abort()
 
@@ -80,6 +95,21 @@ test('agent workflow', async () => {
   assert.equal((await req('DELETE', `/api/tickets/${id}`, { auth: key })).status, 403)
   assert.equal((await req('DELETE', `/api/tickets/${id}`, { auth: human })).status, 200)
   assert.equal((await req('GET', `/api/tickets/${id}`, { auth: key })).status, 404)
+
+  // Assignment identity follows changes, including clearing/deleting the assignee.
+  const assigned = (await req('POST', '/api/tickets', { auth: human, body: { title: 'Identity', assignee: 'me' } })).data
+  assert.equal(assigned.assignee_id, ownerId)
+  assert.equal((await req('PATCH', `/api/tickets/${assigned.id}`, { auth: human, body: { assignee: 'astra' } })).data.assignee_id, agent.id)
+  assert.equal((await req('PATCH', `/api/tickets/${assigned.id}`, { auth: human, body: { assignee: null } })).data.assignee_id, null)
+  const other = await req('POST', '/api/users', { auth: human, body: { kind: 'human', name: 'other', email: 'other@x.io', password: 'password2' } })
+  const signedIn = await req('POST', '/api/login', { body: { email: 'other@x.io', password: 'password2' } })
+  assert.equal(signedIn.data.id, other.data.id); assert.notEqual(signedIn.data.id, ownerId)
+  assert.equal((await req('GET', '/api/me', { auth: signedIn.cookie })).data.id, other.data.id)
+  assert.equal((await req('POST', '/api/logout', { auth: signedIn.cookie })).status, 200)
+  assert.equal((await req('GET', '/api/me', { auth: signedIn.cookie })).status, 401)
+  await req('PATCH', `/api/tickets/${assigned.id}`, { auth: human, body: { assignee: 'other' } })
+  assert.equal((await req('DELETE', '/api/users/other', { auth: human })).status, 200)
+  assert.equal((await req('GET', `/api/tickets/${assigned.id}`, { auth: human })).data.assignee_id, null)
 
   const out = execFileSync(process.execPath, ['bin/kb.mjs', 'new', 'From', 'CLI', '--project', 'veydrift'],
     { env: { ...process.env, AGENTBOARD_URL: base, AGENTBOARD_KEY: key }, input: 'piped body' })

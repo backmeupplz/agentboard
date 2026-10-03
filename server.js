@@ -62,7 +62,7 @@ const text = (v, name, max, required) => {
   return v
 }
 
-// --- lookups: the API speaks names (column slug, project name, user name), never internal ids
+// --- lookups: writes and filters speak names (column slug, project name, user name)
 const columnId = v => { const r = q('SELECT id FROM columns WHERE slug=?').get(slugify(v)); need(r, 400, `unknown column "${v}" (GET /api/board lists them)`); return r.id }
 const projectId = v => { if (!v) return null; const r = q('SELECT id FROM projects WHERE name=?').get(String(v)); need(r, 400, `unknown project "${v}"`); return r.id }
 const userId = (v, me) => { if (!v) return null; if (v === 'me') return me.id; const r = q('SELECT id FROM users WHERE name=?').get(String(v)); need(r, 400, `unknown user "${v}"`); return r.id }
@@ -73,7 +73,7 @@ const links = v => {
   return JSON.stringify(a)
 }
 
-const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", p.name AS project, a.name AS assignee,
+const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", p.name AS project, a.name AS assignee, t.assignee_id,
   t.links, t.position, cb.name AS created_by, t.created_at, t.updated_at
   FROM tickets t JOIN columns c ON c.id=t.column_id LEFT JOIN projects p ON p.id=t.project_id
   LEFT JOIN users a ON a.id=t.assignee_id LEFT JOIN users cb ON cb.id=t.created_by`
@@ -174,7 +174,7 @@ function updateTicket(id, b, me) {
 }
 
 // --- users, auth
-const userOut = (u, me) => ({ name: u.name, kind: u.kind, ...(me.kind === 'human' && { email: u.email }), has_key: !!u.key_hash, created_at: iso(u.created_at) })
+const userOut = (u, me) => ({ id: u.id, name: u.name, kind: u.kind, ...(me.kind === 'human' && { email: u.email }), has_key: !!u.key_hash, created_at: iso(u.created_at) })
 const sessionToken = req => /(?:^|;\s*)ab_session=([^;]+)/.exec(req.headers.cookie || '')?.[1]
 function authUser(req) {
   const h = req.headers.authorization

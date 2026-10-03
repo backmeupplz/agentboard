@@ -73,6 +73,21 @@ const who = name => name ? h('span', { class: 'who' }, avatar(name), name) : h('
 const flair = name => { const p = project(name); return p && h('span', { class: 'flair', style: { '--c': p.color } }, p.name) }
 
 // ---------- auth
+// Cookies are shared across tabs. Recheck on return/reconnect and notify other tabs
+// after sign-in/out; reload only when identity changes, preserving the URL filters.
+const authChanged = () => store.set('auth-change', `${Date.now()}-${Math.random()}`)
+async function refreshIdentity() {
+  try {
+    const me = await api('GET', '/me')
+    if (me.id !== S.me?.id) location.reload()
+  } catch (e) {
+    if (e.status !== 401) throw e
+  }
+}
+window.addEventListener('storage', e => { if (e.key === 'auth-change') location.reload() })
+window.addEventListener('focus', attempt(refreshIdentity))
+document.addEventListener('visibilitychange', () => { if (!document.hidden) attempt(refreshIdentity)() })
+
 async function start() {
   try { S.me = await api('GET', '/me') } catch (e) { return showAuth(e.data?.setup) }
   $('#app').hidden = false
@@ -93,6 +108,7 @@ function showAuth(setup) {
     e.preventDefault()
     try {
       await api('POST', setup ? '/setup' : '/login', { name: el.name.value, email: el.email.value, password: el.password.value, token })
+      authChanged()
       location.replace(location.pathname)
     } catch (err) { $('#auth-error').textContent = err.message }
   }
@@ -143,13 +159,15 @@ async function loadMore(col) {
 }
 
 function card(t) {
-  const el = h('article', { class: 'card', draggable: 'true', 'data-id': t.id, tabindex: 0,
+  const mine = S.me?.id != null && t.assignee_id === S.me.id
+  const el = h('article', { class: 'card' + (mine ? ' assigned-to-me' : ''), draggable: 'true', 'data-id': t.id, tabindex: 0,
     onclick: () => { location.hash = t.id }, onkeydown: e => { if (e.key === 'Enter') location.hash = t.id },
     ondragstart: e => { e.dataTransfer.setData('text/plain', t.id); el.classList.add('dragging') },
     ondragend: () => el.classList.remove('dragging') },
     h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), flair(t.project), h('span', { class: 'grow' }), time(t.updated_at)),
     h('div', { class: 'title' }, t.title),
-    t.assignee && h('div', { class: 'card-foot' }, who(t.assignee)))
+    t.assignee && h('div', { class: 'card-foot' }, who(t.assignee),
+      mine && h('span', { class: 'assignment-cue' }, 'Assigned to you')))
   S.cards.set(t.id, { t, el })
   return el
 }
@@ -205,8 +223,8 @@ setInterval(() => document.querySelectorAll('[data-time]').forEach(el => { el.te
 function connect() {
   const es = new EventSource('/api/stream'), live = $('#live')
   let dropped = false
-  es.onopen = () => { live.classList.add('on'); live.title = 'Live'; if (dropped) { dropped = false; loadBoard(); refreshTicket() } }
-  es.onerror = () => { live.classList.remove('on'); live.title = 'Reconnecting…'; dropped = true }
+  es.onopen = () => { live.classList.add('on'); live.title = 'Live'; if (dropped) { dropped = false; attempt(refreshIdentity)(); loadBoard(); refreshTicket() } }
+  es.onerror = () => { live.classList.remove('on'); live.title = 'Reconnecting…'; dropped = true; attempt(refreshIdentity)() }
   es.onmessage = e => {
     const m = JSON.parse(e.data)
     if (m.type === 'meta') return loadBoard()
@@ -389,7 +407,7 @@ $('#btn-new').onclick = () => {
 const sdlg = $('#settings')
 sdlg.addEventListener('click', e => { if (e.target === sdlg) sdlg.close() })
 $('#btn-settings').onclick = attempt(async () => { await renderSettings(); sdlg.showModal() })
-$('#btn-logout').onclick = attempt(async () => { await api('POST', '/logout'); location.reload() })
+$('#btn-logout').onclick = attempt(async () => { await api('POST', '/logout'); authChanged(); location.reload() })
 const randomColor = () => '#' + [0, 0, 0].map(() => (96 + Math.random() * 144 | 0).toString(16)).join('')
 
 async function renderSettings(keyNotice) {
