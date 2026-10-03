@@ -23,6 +23,7 @@ let
         ../package-lock.json
         ../test.js
         ../icons.test.js
+        ../frontend.test.js
       ]
     );
   };
