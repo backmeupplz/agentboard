@@ -75,7 +75,7 @@ const flair = name => { const p = project(name); return p && h('span', { class: 
 // ---------- auth
 // Cookies are shared across tabs. Recheck on return/reconnect and notify other tabs
 // after sign-in/out; reload only when identity changes, preserving the URL filters.
-const authChanged = () => store.set('auth-change', crypto.randomUUID())
+const authChanged = () => store.set('auth-change', `${Date.now()}-${Math.random()}`)
 async function refreshIdentity() {
   try {
     const me = await api('GET', '/me')

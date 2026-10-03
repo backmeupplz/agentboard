@@ -23,14 +23,14 @@ class Element {
   } }
 }
 const source = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8')
-function app() {
+function app({ storageFails = false } = {}) {
   const nodes = new Map(), window = new Element(), document = new Element(), streams = [], writes = [], requests = []
   document.querySelector = s => { if (!nodes.has(s)) nodes.set(s, new Element()); return nodes.get(s) }
   document.createElement = document.createElementNS = () => new Element()
   const location = { pathname: '/', search: '?project=Demo&assignee=other', hash: '', reloads: 0, reload() { this.reloads++ }, replace(url) { this.replaced = url } }
   let response = { status: 200, data: { id: 7, name: 'viewer' } }
   const context = vm.createContext({ document, window, location, markdownit, URLSearchParams, Blob,
-    crypto: { randomUUID: () => 'changed' }, localStorage: { getItem: () => null, setItem: (k, v) => writes.push([k, v]) },
+    crypto: {}, localStorage: { getItem: () => null, setItem: (k, v) => { if (storageFails) throw new Error('Storage unavailable'); writes.push([k, v]) } },
     setInterval() {}, setTimeout() {}, clearTimeout() {},
     IntersectionObserver: class { observe() {} unobserve() {} },
     EventSource: class { constructor() { streams.push(this) } },
@@ -127,9 +127,26 @@ test('visibility and stream reconnection recheck identity; sign-in/out notify ta
   form.querySelector = () => new Element()
   a.showAuth(false); await form.onsubmit({ preventDefault() {} })
   assert.equal(a.requests.at(-1)[0], '/api/login')
-  assert.deepEqual(a.writes.at(-1), ['auth-change', 'changed'])
+  assert.equal(a.writes.at(-1)[0], 'auth-change')
+  assert.equal(typeof a.writes.at(-1)[1], 'string')
   assert.equal(a.location.replaced, '/')
   await a.nodes.get('#btn-logout').onclick()
   assert.equal(a.requests.at(-1)[0], '/api/logout')
   assert.equal(a.writes.length, 2); assert.equal(a.location.reloads, 1)
+  assert.notEqual(a.writes[0][1], a.writes[1][1])
+})
+
+test('successful login and logout still navigate when storage fails without randomUUID', async () => {
+  const a = app({ storageFails: true }), form = a.document.querySelector('#auth')
+  form.elements = { name: { value: 'viewer' }, email: { value: 'v@example.test' }, password: { value: 'password' } }
+  form.querySelector = () => new Element()
+  a.showAuth(false); await form.onsubmit({ preventDefault() {} })
+  assert.equal(a.requests.at(-1)[0], '/api/login')
+  assert.equal(a.location.replaced, '/')
+  assert.equal(a.document.querySelector('#auth-error').textContent, '')
+  await a.nodes.get('#btn-logout').onclick()
+  assert.equal(a.requests.at(-1)[0], '/api/logout')
+  assert.equal(a.location.reloads, 1)
+  assert.equal(a.document.querySelector('#toasts').textContent, '')
+  assert.equal(a.writes.length, 0)
 })
