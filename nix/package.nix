@@ -22,6 +22,7 @@ let
       ++ [
         ../package-lock.json
         ../test.js
+        ../icons.test.js
       ]
     );
   };
