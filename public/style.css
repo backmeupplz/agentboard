@@ -87,12 +87,14 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .card { flex: none; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--r); padding: 10px 12px; cursor: pointer;
   transition: transform .15s var(--ease), box-shadow .15s, border-color .15s; }
 .card:hover { transform: translateY(-1px); border-color: var(--line); box-shadow: 0 6px 20px var(--shadow-card); }
+.card.assigned-to-me { border-inline-start: 3px solid var(--accent); padding-inline-start: 10px; }
+.assignment-cue { color: var(--accent); font-size: 11.5px; font-weight: 500; }
 .card.flash { animation: enter .35s var(--ease), glow 1.6s ease-out; }
 .card.dragging { opacity: .35; }
 .card .title { margin: 5px 0 0; word-break: break-word; line-height: 1.4; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); min-width: 0; }
-.card-foot { display: flex; margin-top: 8px; }
+.card-foot { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 8px; }
 .id { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
 .flair { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; padding: 1px 8px 1px 7px; border-radius: 99px;
   color: var(--flair-text); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; }
@@ -103,8 +105,8 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .avatar .i { width: 13px; height: 13px; }
 
 /* activity */
-#activity { width: 340px; border-left: 1px solid var(--line-soft); background: var(--panel); display: none; flex-direction: column; min-height: 0; }
-#activity.open { display: flex; animation: slide .25s var(--ease); }
+aside#activity { width: 340px; border-left: 1px solid var(--line-soft); background: var(--panel); display: none; flex-direction: column; min-height: 0; }
+aside#activity.open { display: flex; animation: slide .25s var(--ease); }
 .aside-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px 16px; }
 #feed { list-style: none; padding: 0 8px 12px; margin: 0; overflow-y: auto; font-size: 13px; }
 #feed li { padding: 8px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 20px 1fr; gap: 2px 10px; animation: enter .3s var(--ease); }
@@ -215,7 +217,7 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); anim
   #f-project, #f-assignee { max-width: 34vw; }
   #board { padding: 10px; }
   .col { flex-basis: 84vw; }
-  #activity.open { position: absolute; left: 0; right: 0; bottom: 0; height: 55%; width: auto; border-left: 0; border-top: 1px solid var(--line);
+  aside#activity.open { position: absolute; left: 0; right: 0; bottom: 0; height: 55%; width: auto; border-left: 0; border-top: 1px solid var(--line);
     box-shadow: 0 -12px 40px var(--shadow-dlg); border-radius: 16px 16px 0 0; animation: rise .25s var(--ease); z-index: 2; }
   .ticket-grid { grid-template-columns: 1fr; }
   .side { order: -1; display: grid; grid-template-columns: 1fr 1fr; }

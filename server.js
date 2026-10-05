@@ -62,9 +62,22 @@ const text = (v, name, max, required) => {
   return v
 }
 
-// --- lookups: the API speaks names (column slug, project name, user name), never internal ids
+// --- lookups: writes and filters speak names (column slug, project name, user name)
 const columnId = v => { const r = q('SELECT id FROM columns WHERE slug=?').get(slugify(v)); need(r, 400, `unknown column "${v}" (GET /api/board lists them)`); return r.id }
 const projectId = v => { if (!v) return null; const r = q('SELECT id FROM projects WHERE name=?').get(String(v)); need(r, 400, `unknown project "${v}"`); return r.id }
+const getProject = name => { const r = q('SELECT * FROM projects WHERE name=?').get(name); need(r, 404, `project "${name}" not found`); return r }
+const projectOut = ({ name, color, repo }) => ({ name, color, repo })
+function projectFields(b, cur = { color: '#6e7cff', repo: null }) {
+  const name = text(b.name === undefined ? cur.name : b.name, 'name', 64, true)
+  need(name.trim(), 400, 'name must not be blank')
+  need(name !== '.' && name !== '..', 400, 'name must not be . or ..')
+  const color = b.color === undefined ? cur.color : b.color
+  need(typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color), 400, 'color must be #rrggbb')
+  const repo = b.repo === undefined ? cur.repo : b.repo
+  need(repo === null || repo === '' || (typeof repo === 'string' && /^https?:\/\/\S+$/.test(repo) && repo.length < 2000), 400, 'repo must be an http(s) URL or null')
+  if (repo) { let url; try { url = new URL(repo) } catch {} need(url?.hostname, 400, 'repo must be an http(s) URL or null') }
+  return [name, color, repo || null]
+}
 const userId = (v, me) => { if (!v) return null; if (v === 'me') return me.id; const r = q('SELECT id FROM users WHERE name=?').get(String(v)); need(r, 400, `unknown user "${v}"`); return r.id }
 const links = v => {
   if (v == null) return undefined
@@ -73,7 +86,7 @@ const links = v => {
   return JSON.stringify(a)
 }
 
-const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", p.name AS project, a.name AS assignee,
+const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", p.name AS project, a.name AS assignee, t.assignee_id,
   t.links, t.position, cb.name AS created_by, t.created_at, t.updated_at
   FROM tickets t JOIN columns c ON c.id=t.column_id LEFT JOIN projects p ON p.id=t.project_id
   LEFT JOIN users a ON a.id=t.assignee_id LEFT JOIN users cb ON cb.id=t.created_by`
@@ -174,7 +187,7 @@ function updateTicket(id, b, me) {
 }
 
 // --- users, auth
-const userOut = (u, me) => ({ name: u.name, kind: u.kind, ...(me.kind === 'human' && { email: u.email }), has_key: !!u.key_hash, created_at: iso(u.created_at) })
+const userOut = (u, me) => ({ id: u.id, name: u.name, kind: u.kind, ...(me.kind === 'human' && { email: u.email }), has_key: !!u.key_hash, created_at: iso(u.created_at) })
 const sessionToken = req => /(?:^|;\s*)ab_session=([^;]+)/.exec(req.headers.cookie || '')?.[1]
 function authUser(req) {
   const h = req.headers.authorization
@@ -314,7 +327,7 @@ const routes = [
     return created(res, { url, name: original, size: buf.length, image: ext in INLINE_IMAGES,
       markdown: ext in INLINE_IMAGES ? `![${original}](${url})` : `[${original}](${url})` })
   }],
-  // --- settings (humans only)
+  // --- columns (humans only)
   ['POST', '/api/columns', async (req, res, me) => {
     human(me); const name = text((await json(req)).name, 'name', 64, true); need(slugify(name), 400, 'name needs a letter or digit')
     q('INSERT INTO columns(name,slug,position) VALUES (?,?,(SELECT coalesce(max(position),0)+1 FROM columns))').run(name, slugify(name))
@@ -336,22 +349,23 @@ const routes = [
     need(q('SELECT count(*) n FROM columns').get().n > 1, 409, 'cannot delete the last column')
     q('DELETE FROM columns WHERE id=?').run(id); emit({ type: 'meta' }); return { ok: true }
   }],
-  ['POST', '/api/projects', async (req, res, me) => {
-    human(me); const b = await json(req)
-    const row = [text(b.name, 'name', 64, true), /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#6e7cff', b.repo ? JSON.parse(links(b.repo))[0] : null]
+  // --- projects (all authenticated users)
+  ['GET', '/api/projects', () => q('SELECT name, color, repo FROM projects ORDER BY name').all()],
+  ['GET', '/api/projects/:name', (req, res, me, p) => projectOut(getProject(p.name))],
+  ['POST', '/api/projects', async (req, res) => {
+    const row = projectFields(await json(req))
     q('INSERT INTO projects(name,color,repo) VALUES (?,?,?)').run(...row); emit({ type: 'meta' })
     return created(res, q('SELECT name, color, repo FROM projects WHERE name=?').get(row[0]))
   }],
   ['PATCH', '/api/projects/:name', async (req, res, me, p) => {
-    human(me); const b = await json(req), id = projectId(p.name)
-    if (b.name !== undefined) q('UPDATE projects SET name=? WHERE id=?').run(text(b.name, 'name', 64, true), id)
-    if (b.color !== undefined) need(/^#[0-9a-f]{6}$/i.test(b.color), 400, 'color must be #rrggbb'), q('UPDATE projects SET color=? WHERE id=?').run(b.color, id)
-    if (b.repo !== undefined) q('UPDATE projects SET repo=? WHERE id=?').run(b.repo ? JSON.parse(links(b.repo))[0] : null, id)
-    emit({ type: 'meta' }); return q('SELECT name, color, repo FROM projects WHERE id=?').get(id)
+    const b = await json(req), cur = getProject(p.name), row = projectFields(b, cur)
+    q('UPDATE projects SET name=?, color=?, repo=? WHERE id=?').run(...row, cur.id)
+    emit({ type: 'meta' }); return q('SELECT name, color, repo FROM projects WHERE id=?').get(cur.id)
   }],
   ['DELETE', '/api/projects/:name', (req, res, me, p) => {
-    human(me); q('DELETE FROM projects WHERE id=?').run(projectId(p.name)); emit({ type: 'meta' }); return { ok: true }
+    q('DELETE FROM projects WHERE id=?').run(getProject(p.name).id); emit({ type: 'meta' }); return { ok: true }
   }],
+  // --- people (writes are humans only)
   ['GET', '/api/users', (req, res, me) => q('SELECT * FROM users ORDER BY kind DESC, name').all().map(u => userOut(u, me))],
   ['POST', '/api/users', async (req, res, me) => {
     human(me); const { user, key } = createUser(await json(req)); emit({ type: 'meta' })
@@ -400,11 +414,13 @@ const server = http.createServer(async (req, res) => {
     let pathname
     try { pathname = decodeURIComponent(url.pathname) } catch { throw new HttpError(400, 'bad url') }
     if (pathname.startsWith('/api')) {
-      const route = routes.find(r => r.method === req.method && r.re.test(pathname))
+      // Match encoded segments first: a slash inside a name is data, not a route separator.
+      const route = routes.find(r => r.method === req.method && r.re.test(url.pathname))
       need(route, 404, `no route ${req.method} ${pathname} (GET /api for docs)`)
       const me = authUser(req)
       if (!route.public && !me) return send(res, 401, { error: 'unauthorized: send "Authorization: Bearer <key>"', setup: !q('SELECT 1 FROM users').get() })
-      const out = await route.fn(req, res, me, route.re.exec(pathname).groups ?? {}, query)
+      const params = Object.fromEntries(Object.entries(route.re.exec(url.pathname).groups ?? {}).map(([k, v]) => [k, decodeURIComponent(v)]))
+      const out = await route.fn(req, res, me, params, query)
       if (out !== undefined) send(res, res.statusCode, out)
       return
     }

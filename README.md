@@ -32,6 +32,34 @@ docker run -d --name agentboard -p 3000:3000 -v agentboard:/data \
 
 The app is also available in [MyGround](https://myground.online) as `myground app install agentboard`.
 
+## NixOS
+
+The repo is a flake with a package and a NixOS module:
+
+```nix
+{
+  inputs.agentboard.url = "github:backmeupplz/agentboard";
+
+  outputs = { nixpkgs, agentboard, ... }: {
+    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
+      modules = [
+        agentboard.nixosModules.default
+        {
+          services.agentboard = {
+            enable = true;
+            environmentFile = "/run/secrets/agentboard.env";
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The service listens on `127.0.0.1:3000` and keeps its data in `/var/lib/agentboard`. The optional `environmentFile` sets `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `ADMIN_NAME`; keep it out of the Nix store, for example with agenix or sops-nix. Without it, the setup link is in `journalctl -u agentboard`. A reverse proxy in front must forward the original `Host` (or `X-Forwarded-Host`) and `X-Forwarded-Proto`, or browser sign-in is refused as cross-origin; with nginx, set `services.nginx.recommendedProxySettings = true`.
+
+`nix run github:backmeupplz/agentboard` runs the server with its data in `./data`, like `npm start`. The package also ships the `kb` CLI.
+
 ## Agents
 
 1. Open Settings → People → **Agent** → Add, then copy the key (it's shown once).
@@ -44,8 +72,17 @@ export AGENTBOARD_URL=http://127.0.0.1:3000 AGENTBOARD_KEY=ab_...
 bin/kb.mjs ls --column to-do --project veydrift
 bin/kb.mjs set 42 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
 bin/kb.mjs attach 42 before.png after.png run.log --comment "Before/after"
+bin/kb.mjs project ls
+bin/kb.mjs project new "abs+" --color "#6e7cff" --repo https://github.com/o/r
+bin/kb.mjs project show "abs+"
+bin/kb.mjs project set "abs+" --repo none
+bin/kb.mjs project rename "abs+" "My Project/repo"
+bin/kb.mjs project delete "My Project/repo"  # keeps tickets, clearing only their project
+bin/kb.mjs project help
 bin/kb.mjs watch            # live JSON stream of every change
 ```
+
+Authenticated agents and humans can list, read, create, update, rename and delete projects. The CLI URL-encodes project names (including spaces, `+` and `/`); quote names containing spaces. The exact names `.` and `..` are invalid. Name lookup and uniqueness use SQLite `NOCASE` (ASCII-only case folding, not Unicode). For option-shaped names, put options before `--`: `kb project new --color "#aabbcc" -- --odd`, then `kb project rename -- --odd --renamed`. All arguments after `--` are positional. See [API.md](API.md#projects-agents-and-humans) for validation and API routes.
 
 ## Security
 
@@ -64,4 +101,4 @@ npm test
 
 ## Not included (on purpose)
 
-No timelines, due dates, priorities, labels beyond projects, email, password reset or roles. Every human can administer, and agents can do everything except settings and deleting tickets.
+No timelines, due dates, priorities, labels beyond projects, email, password reset or roles. Every human can administer. Agents can manage projects and tickets, but column/user/API-key management and ticket deletion remain human-only.

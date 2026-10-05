@@ -5,6 +5,7 @@ import path from 'node:path'
 
 const HELP = `kb <command>            (env: AGENTBOARD_URL, AGENTBOARD_KEY; full API: kb docs)
   board                                   columns (with counts), projects, users
+  project <ls|show|new|set|rename|delete>   manage projects (agents and humans; kb project help)
   ls [--column c] [--project p] [--assignee a|me|none] [--q text] [--limit n] [--offset n]
   show <id>                               ticket + timeline
   new <title> [--column c] [--project p] [--assignee a] [--link url]... [--body md]   body from stdin if piped
@@ -15,13 +16,29 @@ const HELP = `kb <command>            (env: AGENTBOARD_URL, AGENTBOARD_KEY; full
   events [--after id] [--ticket id]       event log, oldest first
   watch                                   stream live changes (one JSON per line)
   api <METHOD> <path> [json]              raw call, e.g. kb api GET /api/tickets/42
-  docs                                    print the API docs`
+  docs                                    print the API docs
+Use -- to end options; all following arguments are positional.`
+
+const PROJECT_HELP = `kb project <command>   (agents and humans; quote names containing spaces)
+  ls                                      list projects
+  show <name>                             read a project
+  new <name> [--color #rrggbb] [--repo url]  create a project
+  set <name> [--name new-name] [--color #rrggbb] [--repo url|none]
+  rename <name> <new-name>                 rename without changing ticket associations
+  delete <name>                           keep tickets, clearing only their project
+  help                                    show this help
+Use -- before option-shaped names, with options first:
+  kb project new --color "#aabbcc" -- --odd
+  kb project rename -- --odd --renamed
+All arguments after -- are positional.
+Columns, users, API keys and ticket deletion remain human-only.`
 
 const URL_ = (process.env.AGENTBOARD_URL || 'http://127.0.0.1:3000').replace(/\/$/, '')
 const KEY = process.env.AGENTBOARD_KEY
 const [cmd, ...rest] = process.argv.slice(2)
-const pos = [], opt = {}
+const pos = [], opt = Object.create(null)
 for (let i = 0; i < rest.length; i++) {
+  if (rest[i] === '--') { pos.push(...rest.slice(i + 1)); break }
   const m = /^--([\w-]+)$/.exec(rest[i])
   if (!m) { pos.push(rest[i]); continue }
   const k = m[1].replace(/-/g, '_'), v = rest[++i]
@@ -44,6 +61,21 @@ const qs = o => { const p = new URLSearchParams(Object.entries(o).filter(([, v])
 
 const commands = {
   board: () => call('GET', '/api/board'),
+  project: () => {
+    const [action, name, newName] = pos
+    if (!action || action === 'help') return PROJECT_HELP
+    const counts = { ls: 1, show: 2, new: 2, set: 2, rename: 3, delete: 2 }
+    if (pos.length !== counts[action]) die(PROJECT_HELP)
+    const allowed = action === 'new' ? ['color', 'repo'] : action === 'set' ? ['name', 'color', 'repo'] : []
+    for (const k of Object.keys(opt)) if (!allowed.includes(k)) die(`unknown option --${k} for project ${action}`)
+    const metadata = { ...opt, ...('repo' in opt && { repo: none(opt.repo) }) }
+    const p = '/api/projects' + (name === undefined ? '' : '/' + encodeURIComponent(name))
+    if (action === 'ls' || action === 'show') return call('GET', p)
+    if (action === 'new') return call('POST', '/api/projects', { name, ...metadata })
+    if (action === 'set') return call('PATCH', p, metadata)
+    if (action === 'rename') return call('PATCH', p, { name: newName })
+    return call('DELETE', p)
+  },
   ls: () => call('GET', '/api/tickets' + qs(opt)),
   show: () => call('GET', '/api/tickets/' + pos[0]),
   new: () => call('POST', '/api/tickets', { title: pos.join(' '), body: opt.body ?? stdin(), column: opt.column, project: opt.project, assignee: opt.assignee, links: opt.links }),
