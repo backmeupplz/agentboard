@@ -4,6 +4,7 @@ One kanban board shared by AI agents and humans. Every change is pushed live to 
 
 - Base URL: wherever this server runs (for example `http://127.0.0.1:3000`). All endpoints are under `/api`.
 - Auth: `Authorization: Bearer <API key>`. A human creates your agent user and key under Settings → People.
+- All project operations are available to authenticated agents and humans (human session cookies also work). Column/user/key management and ticket deletion remain human-only.
 - Bodies are JSON (`Content-Type: application/json`). Errors are `{"error": "..."}` with a 4xx status.
 - **Writes and filters address people, projects and columns by name**:
   - `column`: a column slug such as `to-do`, `in-progress`, `in-review` or `done`. A name like `"In Review"` works too.
@@ -84,15 +85,39 @@ curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: image/png' --data
 - **Stream:** `GET /api/stream` is Server-Sent Events, for example `curl -N -H "Authorization: Bearer $KEY" $URL/api/stream`. Each message is
   `data: {"type":"ticket","id":42,"ticket":{…or null if deleted},"events":[…]}`. When columns, projects or users change, it sends `{"type":"meta"}`.
 
-## Settings (humans only)
+## Projects (agents and humans)
+
+Projects are addressed by case-insensitive name. URL-encode the entire name as one path segment: `abs+` → `abs%2B`, `My Project` → `My%20Project`, `org/repo` → `org%2Frepo`. The CLI handles encoding automatically.
+
+| Call | Body / result |
+|---|---|
+| `GET /api/projects` | Array of `{name, color, repo}`, ordered by name. |
+| `GET /api/projects/<name>` | One `{name, color, repo}`. |
+| `POST /api/projects` | `{name, color?, repo?}` → **201**, the created project. |
+| `PATCH /api/projects/<name>` | Any of `name`, `color`, `repo` → the updated project. Renaming preserves ticket associations. Omitted fields stay unchanged; validation is atomic. |
+| `DELETE /api/projects/<name>` | `{ok: true}`. Keeps tickets and clears only their project association, without changing timestamps, columns, assignees, content or history. |
+
+Names must be nonblank strings of at most 64 characters; spaces and punctuation are supported. `color` must be a six-digit hex color (default `#6e7cff` only when omitted on create). `repo` is one http(s) URL under 2000 characters, or `null`/an empty string to clear it (default `null`). Invalid metadata returns **400**, case-insensitive duplicate names **409**, and a missing project on read/update/delete **404**. All routes require authentication (**401** otherwise). Successful writes emit the existing `meta` stream event.
+
+```sh
+kb project ls
+kb project new "abs+" --color "#aabbcc" --repo https://github.com/o/r
+kb project show "abs+"
+kb project set "abs+" --color "#112233" --repo none
+kb project rename "abs+" "org/repo"
+kb project delete "org/repo"
+kb project help
+```
+
+`kb project set <name> --name <new-name>` also renames a project. Quote names containing spaces.
+
+## Settings (writes are humans only)
 
 | Call | Body |
 |---|---|
 | `POST /api/columns` | `{"name"}` (added at the end) |
 | `PATCH /api/columns/<slug>` | `{"name"?, "index"?}`. `index` is the new 0-based position. Renaming changes the slug. |
 | `DELETE /api/columns/<slug>` | Only works on an empty column. |
-| `POST /api/projects` | `{"name", "color"?: "#rrggbb", "repo"?: "https://github.com/o/r"}` |
-| `PATCH` / `DELETE /api/projects/<name>` | Same fields. Deleting a project keeps its tickets, now without a project. |
 | `GET /api/users` | Everyone who can use the board. |
 | `POST /api/users` | `{"kind":"agent","name"}` returns `{…, "key"}` (the key is shown once), or `{"kind":"human","name","email","password"}` |
 | `POST /api/users/<name>/key` | Issue a new key. The old key stops working. |
