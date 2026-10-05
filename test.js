@@ -155,13 +155,13 @@ test('project validation is strict and atomic', async () => {
   assert.equal((await req('PATCH', p, { auth, body: { name: 'OTHER PROJECT', color: '#112233', repo: 'https://example.com' } })).status, 409)
   assert.deepEqual((await req('GET', p, { auth })).data, original)
   const invalid = [
-    ...[null, '', '   ', 123, [], {}, 'x'.repeat(65)].map(name => ({ name })),
+    ...[null, '', '   ', '.', '..', 123, [], {}, 'x'.repeat(65)].map(name => ({ name })),
     ...[null, '', '#abc', 'red', 123, ['#123456'], {}].map(color => ({ color })),
     ...[false, 0, [], ['https://example.com'], {}, 'git@example.com:r', 'https://bad url', 'https://?', 'https://[', 'https://' + 'x'.repeat(2000)].map(repo => ({ repo })),
   ]
   for (const fields of invalid) {
     assert.equal((await req('POST', '/api/projects', { auth, body: { name: 'Invalid candidate', ...fields } })).status, 400, JSON.stringify(fields))
-    assert.equal((await req('PATCH', p, { auth, body: { name: 'Changed', color: '#abcdef', ...fields } })).status, 400, JSON.stringify(fields))
+    assert.equal((await req('PATCH', p, { auth, body: { name: 'Changed', color: '#abcdef', repo: 'https://example.com/changed', ...fields } })).status, 400, JSON.stringify(fields))
     assert.deepEqual((await req('GET', p, { auth })).data, original)
     assert.equal((await req('GET', '/api/projects/Changed', { auth })).status, 404)
     assert.equal((await req('GET', '/api/projects/Invalid%20candidate', { auth })).status, 404)
@@ -208,6 +208,8 @@ test('project CLI is discoverable and encodes names', () => {
   const cli = (...args) => JSON.parse(run('project', ...args))
   assert.match(run('help'), /project <ls\|show\|new\|set\|rename\|delete>/)
   assert.match(run('project', 'help'), /agents and humans/)
+  assert.match(run('help'), /all following arguments are positional/)
+  assert.match(run('project', 'help'), /All arguments after -- are positional/)
   assert.match(run('project'), /human-only/)
   for (const name of ['abs+', 'CLI space', 'CLI/org%2Frepo?#']) {
     assert.deepEqual(cli('new', name), { name, color: '#6e7cff', repo: null })
@@ -221,9 +223,29 @@ test('project CLI is discoverable and encodes names', () => {
     assert.deepEqual(cli('delete', finalName), { ok: true })
     assert.throws(() => cli('show', finalName), e => e.status === 1 && /404/.test(e.stderr.toString()))
   }
-  for (const args of [['new'], ['delete'], ['rename', 'x'], ['unknown'], ['ls', 'extra'], ['set', 'Validation', '--colr', '#123456']]) {
+  for (const name of ['--odd', '--', '--__proto__']) {
+    const original = { name, color: '#123456', repo: 'https://example.com/repo' }
+    assert.deepEqual(cli('new', '--color', original.color, '--repo', original.repo, '--', name), original)
+    assert.deepEqual(cli('show', '--', name), original)
+    assert.deepEqual(cli('set', '--color', '#abcdef', '--repo', 'none', '--', name), { name, color: '#abcdef', repo: null })
+    const renamed = name + '-renamed'
+    assert.equal(cli('rename', '--', name, renamed).name, renamed)
+    const finalName = name + '-final'
+    assert.equal(cli('set', '--name', finalName, '--', renamed).name, finalName)
+    assert.deepEqual(cli('delete', '--', finalName), { ok: true })
+    assert.throws(() => cli('show', '--', finalName), e => e.status === 1 && /404/.test(e.stderr.toString()))
+  }
+  // The shared parser treats everything after the sentinel as positional, not options.
+  const ticket = JSON.parse(run('new', '--body', 'Sentinel body', '--', '--odd', '--color', 'red', '--'))
+  assert.equal(ticket.title, '--odd --color red --')
+  assert.equal(ticket.body, 'Sentinel body')
+  for (const args of [['new'], ['delete'], ['rename', 'x'], ['unknown'], ['ls', 'extra'], ['set', 'Validation', '--colr', '#123456'], ['set', '--', 'Validation', '--color', '#123456']]) {
     assert.throws(() => cli(...args), e => e.status === 1)
   }
+  for (const option of ['--__proto__', '--constructor', '--toString']) {
+    assert.throws(() => cli('set', 'Validation', option, 'ignored'), e => e.status === 1 && e.stderr.toString().includes(`unknown option ${option}`))
+  }
+  assert.deepEqual(cli('show', 'Validation'), { name: 'Validation', color: '#6e7cff', repo: null })
   assert.throws(() => cli('new', 'Invalid CLI', '--color', 'red'), e => e.status === 1 && /400/.test(e.stderr.toString()))
   assert.throws(() => cli('new', 'VALIDATION'), e => e.status === 1 && /409/.test(e.stderr.toString()))
 })

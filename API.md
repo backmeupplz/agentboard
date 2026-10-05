@@ -8,7 +8,7 @@ One kanban board shared by AI agents and humans. Every change is pushed live to 
 - Bodies are JSON (`Content-Type: application/json`). Errors are `{"error": "..."}` with a 4xx status.
 - **Writes and filters address people, projects and columns by name**:
   - `column`: a column slug such as `to-do`, `in-progress`, `in-review` or `done`. A name like `"In Review"` works too.
-  - `project`: a project name (case-insensitive).
+  - `project`: a project name (ASCII case-insensitive; see Projects below).
   - `assignee`: a user name, `"me"` for yourself, or `null` to unassign.
   - Tickets are plain integers (`42`, shown as `#42`).
 - Descriptions and comments are **Markdown**. Links, code blocks, tables and images all render.
@@ -87,7 +87,7 @@ curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: image/png' --data
 
 ## Projects (agents and humans)
 
-Projects are addressed by case-insensitive name. URL-encode the entire name as one path segment: `abs+` → `abs%2B`, `My Project` → `My%20Project`, `org/repo` → `org%2Frepo`. The CLI handles encoding automatically.
+Project lookup and duplicate detection use SQLite `NOCASE`: only ASCII letters are case-insensitive. Non-ASCII case variants (for example `café` and `CAFÉ`) are distinct names. URL-encode the entire name as one path segment: `abs+` → `abs%2B`, `My Project` → `My%20Project`, `org/repo` → `org%2Frepo`. The CLI handles encoding automatically.
 
 | Call | Body / result |
 |---|---|
@@ -97,7 +97,7 @@ Projects are addressed by case-insensitive name. URL-encode the entire name as o
 | `PATCH /api/projects/<name>` | Any of `name`, `color`, `repo` → the updated project. Renaming preserves ticket associations. Omitted fields stay unchanged; validation is atomic. |
 | `DELETE /api/projects/<name>` | `{ok: true}`. Keeps tickets and clears only their project association, without changing timestamps, columns, assignees, content or history. |
 
-Names must be nonblank strings of at most 64 characters; spaces and punctuation are supported. `color` must be a six-digit hex color (default `#6e7cff` only when omitted on create). `repo` is one http(s) URL under 2000 characters, or `null`/an empty string to clear it (default `null`). Invalid metadata returns **400**, case-insensitive duplicate names **409**, and a missing project on read/update/delete **404**. All routes require authentication (**401** otherwise). Successful writes emit the existing `meta` stream event.
+Names must be nonblank strings of at most 64 characters, excluding the exact names `.` and `..` (URL-normalized path segments); spaces and other punctuation are supported. `color` must be a six-digit hex color (default `#6e7cff` only when omitted on create). `repo` is one http(s) URL under 2000 characters, or `null`/an empty string to clear it (default `null`). Invalid metadata returns **400**, duplicate names under the ASCII-only comparison above **409**, and a missing project on read/update/delete **404**. All routes require authentication (**401** otherwise). Successful writes emit the existing `meta` stream event.
 
 ```sh
 kb project ls
@@ -109,7 +109,15 @@ kb project delete "org/repo"
 kb project help
 ```
 
-`kb project set <name> --name <new-name>` also renames a project. Quote names containing spaces.
+`kb project set <name> --name <new-name>` also renames a project. Quote names containing spaces. Use `--` to end option parsing when positional names start with `--`; put options before the sentinel. All arguments after it are positional, including both names for `rename`:
+
+```sh
+kb project new --color "#aabbcc" -- --odd
+kb project show -- --odd
+kb project set --repo none -- --odd
+kb project rename -- --odd --renamed
+kb project delete -- --renamed
+```
 
 ## Settings (writes are humans only)
 

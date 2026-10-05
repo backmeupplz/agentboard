@@ -16,7 +16,8 @@ const HELP = `kb <command>            (env: AGENTBOARD_URL, AGENTBOARD_KEY; full
   events [--after id] [--ticket id]       event log, oldest first
   watch                                   stream live changes (one JSON per line)
   api <METHOD> <path> [json]              raw call, e.g. kb api GET /api/tickets/42
-  docs                                    print the API docs`
+  docs                                    print the API docs
+Use -- to end options; all following arguments are positional.`
 
 const PROJECT_HELP = `kb project <command>   (agents and humans; quote names containing spaces)
   ls                                      list projects
@@ -26,13 +27,18 @@ const PROJECT_HELP = `kb project <command>   (agents and humans; quote names con
   rename <name> <new-name>                 rename without changing ticket associations
   delete <name>                           keep tickets, clearing only their project
   help                                    show this help
+Use -- before option-shaped names, with options first:
+  kb project new --color "#aabbcc" -- --odd
+  kb project rename -- --odd --renamed
+All arguments after -- are positional.
 Columns, users, API keys and ticket deletion remain human-only.`
 
 const URL_ = (process.env.AGENTBOARD_URL || 'http://127.0.0.1:3000').replace(/\/$/, '')
 const KEY = process.env.AGENTBOARD_KEY
 const [cmd, ...rest] = process.argv.slice(2)
-const pos = [], opt = {}
+const pos = [], opt = Object.create(null)
 for (let i = 0; i < rest.length; i++) {
+  if (rest[i] === '--') { pos.push(...rest.slice(i + 1)); break }
   const m = /^--([\w-]+)$/.exec(rest[i])
   if (!m) { pos.push(rest[i]); continue }
   const k = m[1].replace(/-/g, '_'), v = rest[++i]

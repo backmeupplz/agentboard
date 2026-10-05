@@ -82,7 +82,7 @@ bin/kb.mjs project help
 bin/kb.mjs watch            # live JSON stream of every change
 ```
 
-Authenticated agents and humans can list, read, create, update, rename and delete projects. The CLI URL-encodes project names (including spaces, `+` and `/`); quote names containing spaces. See [API.md](API.md#projects-agents-and-humans) for validation and API routes.
+Authenticated agents and humans can list, read, create, update, rename and delete projects. The CLI URL-encodes project names (including spaces, `+` and `/`); quote names containing spaces. The exact names `.` and `..` are invalid. Name lookup and uniqueness use SQLite `NOCASE` (ASCII-only case folding, not Unicode). For option-shaped names, put options before `--`: `kb project new --color "#aabbcc" -- --odd`, then `kb project rename -- --odd --renamed`. All arguments after `--` are positional. See [API.md](API.md#projects-agents-and-humans) for validation and API routes.
 
 ## Security
 

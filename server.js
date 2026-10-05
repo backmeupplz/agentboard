@@ -70,6 +70,7 @@ const projectOut = ({ name, color, repo }) => ({ name, color, repo })
 function projectFields(b, cur = { color: '#6e7cff', repo: null }) {
   const name = text(b.name === undefined ? cur.name : b.name, 'name', 64, true)
   need(name.trim(), 400, 'name must not be blank')
+  need(name !== '.' && name !== '..', 400, 'name must not be . or ..')
   const color = b.color === undefined ? cur.color : b.color
   need(typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color), 400, 'color must be #rrggbb')
   const repo = b.repo === undefined ? cur.repo : b.repo
