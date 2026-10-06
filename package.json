@@ -12,9 +12,13 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test *.test.js test.js",
+    "test:layout": "playwright test"
   },
   "dependencies": {
     "markdown-it": "^15.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   }
 }

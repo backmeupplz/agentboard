@@ -96,8 +96,13 @@ Authenticated agents and humans can list, read, create, update, rename and delet
 ## Test
 
 ```sh
+npm ci
 npm test
+npx playwright install chromium
+npm run test:layout
 ```
+
+Layout regressions render the real frontend with isolated API fixtures in Chromium at phone, tablet and desktop widths; they also exercise drag/drop. No live board or credentials are needed.
 
 ## Not included (on purpose)
 
