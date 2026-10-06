@@ -17,3 +17,5 @@ jobs:
         with:
           node-version: 24
       - run: npm ci && npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:layout
