@@ -409,17 +409,21 @@ sdlg.addEventListener('click', e => { if (e.target === sdlg) sdlg.close() })
 $('#btn-settings').onclick = attempt(async () => { await renderSettings(); sdlg.showModal() })
 $('#btn-logout').onclick = attempt(async () => { await api('POST', '/logout'); authChanged(); location.reload() })
 
-// ---------- theme: system → light → dark (theme.js applies it before first paint)
+// ---------- theme: system → opposite of the OS → same as the OS → system, so the first click always changes the page
+// (theme.js applies it before first paint; an empty saved value means follow the OS)
 const THEMES = { '': ['sun-moon', 'Theme: system'], light: ['sun', 'Theme: light'], dark: ['moon', 'Theme: dark'] }
 const showTheme = () => {
   const [name, label] = THEMES[store.get('theme') || ''] || THEMES['']
   Object.assign($('#btn-theme'), { title: label, ariaLabel: label }); $('#btn-theme').replaceChildren(icon(name))
 }
+const syncTheme = () => { window.applyTheme(); showTheme() }
 $('#btn-theme').onclick = () => {
-  const next = { '': 'light', light: 'dark', dark: '' }[store.get('theme') || ''] ?? ''
-  if (next) store.set('theme', next); else try { localStorage.removeItem('theme') } catch {}
-  window.applyTheme(); showTheme()
+  const os = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark', flip = t => t === 'light' ? 'dark' : 'light'
+  const t = store.get('theme')
+  store.set('theme', !t ? flip(os) : t === os ? '' : flip(t))
+  syncTheme()
 }
+window.addEventListener('storage', e => { if (e.key === 'theme') syncTheme() }) // other tabs
 showTheme()
 const randomColor = () => '#' + [0, 0, 0].map(() => (96 + Math.random() * 144 | 0).toString(16)).join('')
 
