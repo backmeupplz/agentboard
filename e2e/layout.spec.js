@@ -22,7 +22,7 @@ async function board(page) {
     if (path === '/api/stream') return route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' })
     if (path === '/vendor/markdown-it.mjs') return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../node_modules/markdown-it/dist/browser/markdown-it.esm.min.mjs', import.meta.url), 'utf8') })
     const file = path === '/' ? 'index.html' : path.slice(1)
-    if (['index.html', 'app.js', 'style.css', 'icons.svg'].includes(file)) return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html', body: await publicFile(file) })
+    if (['index.html', 'app.js', 'theme.js', 'style.css', 'icons.svg'].includes(file)) return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html', body: await publicFile(file) })
     return route.fulfill({ status: 404, body: '' })
   })
   await page.goto('http://board.test/')
@@ -74,4 +74,17 @@ test('dragging a card into an empty lane still updates its column', async ({ pag
   await expect(page.locator('.col').first().locator('.card')).toHaveCount(1)
   await expect(page.locator('.col').nth(1).locator('.card')).toHaveCount(0)
   await expect(page.locator('.card .assignment-cue')).toHaveText('Assigned to you')
+})
+
+test('theme toggle changes the page on the first click and cycles back to the OS theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await board(page)
+  const theme = () => page.evaluate(() => [document.documentElement.dataset.theme, localStorage.getItem('theme') || '', document.querySelector('#btn-theme').title])
+  expect(await theme()).toEqual(['light', '', 'Theme: system'])
+  for (const want of [['dark', 'dark', 'Theme: dark'], ['light', 'light', 'Theme: light'], ['light', '', 'Theme: system']]) {
+    await page.locator('#btn-theme').click()
+    expect(await theme()).toEqual(want)
+  }
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect.poll(async () => (await theme())[0]).toBe('dark')
 })
