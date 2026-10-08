@@ -408,6 +408,19 @@ const sdlg = $('#settings')
 sdlg.addEventListener('click', e => { if (e.target === sdlg) sdlg.close() })
 $('#btn-settings').onclick = attempt(async () => { await renderSettings(); sdlg.showModal() })
 $('#btn-logout').onclick = attempt(async () => { await api('POST', '/logout'); authChanged(); location.reload() })
+
+// ---------- theme: system → light → dark (theme.js applies it before first paint)
+const THEMES = { '': ['sun-moon', 'Theme: system'], light: ['sun', 'Theme: light'], dark: ['moon', 'Theme: dark'] }
+const showTheme = () => {
+  const [name, label] = THEMES[store.get('theme') || ''] || THEMES['']
+  Object.assign($('#btn-theme'), { title: label, ariaLabel: label }); $('#btn-theme').replaceChildren(icon(name))
+}
+$('#btn-theme').onclick = () => {
+  const next = { '': 'light', light: 'dark', dark: '' }[store.get('theme') || ''] ?? ''
+  if (next) store.set('theme', next); else try { localStorage.removeItem('theme') } catch {}
+  window.applyTheme(); showTheme()
+}
+showTheme()
 const randomColor = () => '#' + [0, 0, 0].map(() => (96 + Math.random() * 144 | 0).toString(16)).join('')
 
 async function renderSettings(keyNotice) {
