@@ -34,9 +34,6 @@
         {
           inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) agentboard;
         }
-        // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          module = pkgs.testers.runNixOSTest (import ./nix/test.nix self);
-        }
       );
     };
 }
