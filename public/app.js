@@ -35,11 +35,13 @@ const qs = o => { const p = new URLSearchParams(Object.entries(o).filter(([, v])
 const ago = t => { const s = (Date.now() - new Date(t)) / 1e3; return s < 60 ? 'now' : s < 3600 ? `${s / 60 | 0}m` : s < 86400 ? `${s / 3600 | 0}h` : `${s / 86400 | 0}d` }
 const time = t => h('time', { 'data-time': t, datetime: t, title: new Date(t).toLocaleString() }, ago(t))
 const store = { get: k => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+// Repo, PR and issue links on the Forgejo (git.borodutch.com) or GitHub web UI
+const FORGE = /^https?:\/\/(?:git\.borodutch\.com|github\.com)\/([^/]+\/[^/#?]+?)(?:\.git)?(?:\/(?:pulls?|issues)\/(\d+))?(?=[/#?]|$)/
 const shortLink = u => {
-  const m = /^https?:\/\/github\.com\/([^/]+\/[^/#?]+)(?:\/(?:pull|issues)\/(\d+))?/.exec(u)
+  const m = FORGE.exec(u)
   return m ? m[1] + (m[2] ? ' #' + m[2] : '') : u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)
 }
-const linkIcon = u => /\/pull\/\d+/.test(u) ? 'git-pull-request' : /github\.com\/[^/]+\/[^/]+\/?$/.test(u) ? 'folder-git-2' : 'link'
+const linkIcon = u => /\/pulls?\/\d+/.test(u) ? 'git-pull-request' : /^https?:\/\/(?:git\.borodutch\.com|github\.com)\/[^/]+\/[^/]+\/?$/.test(u) ? 'folder-git-2' : 'link'
 
 function toast(msg, bad = true) {
   const el = h('div', { class: 'toast' + (bad ? ' bad' : ''), role: 'status' }, msg)
@@ -450,7 +452,7 @@ async function renderSettings(keyNotice) {
     body = [h('div', { class: 'list' }, board.projects.map(p => h('div', { class: 'item' },
       h('input', { type: 'color', class: 'swatch', value: p.color, 'aria-label': 'Color', onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { color: e.target.value })) }),
       h('input', { class: 'ghost-input', value: p.name, size: 14, 'aria-label': 'Project name', onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { name: e.target.value })) }),
-      h('input', { class: 'ghost-input grow', value: p.repo, placeholder: 'github.com/owner/repo', 'aria-label': 'Repository URL',
+      h('input', { class: 'ghost-input grow', value: p.repo, placeholder: 'git.borodutch.com/owner/repo', 'aria-label': 'Repository URL',
         onchange: act(e => api('PATCH', '/projects/' + enc(p.name), { repo: repoUrl(e.target.value) })) }),
       h('div', { class: 'actions' }, btn('trash-2', 'Delete project', act(() => confirm(`Delete project ${p.name}? Its tickets stay.`) && api('DELETE', '/projects/' + enc(p.name))), 'ghost icon sm danger'))))),
       addForm(act(() => api('POST', '/projects', { name: name.value, color: randomColor() })), name)]

@@ -24,7 +24,7 @@ Compare `me.id` with a ticket's `assignee_id` to identify your assignments, inde
 ```sh
 curl -H "Authorization: Bearer $KEY" $URL/api/board
 # {"columns":[{"slug":"to-do","name":"To Do","count":12},...],
-#  "projects":[{"name":"veydrift","color":"#6e7cff","repo":"https://github.com/o/r"}],
+#  "projects":[{"name":"veydrift","color":"#6e7cff","repo":"https://git.borodutch.com/o/r"}],
 #  "users":[{"name":"astra","kind":"agent"},...]}
 ```
 
@@ -36,7 +36,7 @@ A ticket looks like this:
 
 ```json
 {"id":42,"title":"Fix login","body":"markdown…","column":"in-progress","project":"veydrift","assignee":"astra","assignee_id":2,
- "links":["https://github.com/o/r/pull/7"],"position":-1727000000000,"created_by":"nikita",
+ "links":["https://git.borodutch.com/o/r/pulls/7"],"position":-1727000000000,"created_by":"nikita",
  "created_at":"2026-09-30T12:00:00.000Z","updated_at":"2026-09-30T12:05:00.000Z"}
 ```
 
@@ -60,7 +60,7 @@ curl -X PATCH -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json
   -d '{"if_column":"to-do","column":"in-progress","assignee":"me","comment":"Picking this up."}'
 
 # hand off, with the handoff note in the same call
-curl -X PATCH ... $URL/api/tickets/42 -d '{"column":"in-review","links":["https://github.com/o/r/pull/7"],
+curl -X PATCH ... $URL/api/tickets/42 -d '{"column":"in-review","links":["https://git.borodutch.com/o/r/pulls/7"],
   "comment":"## Handoff\nPR ready, tests green."}'
 ```
 
@@ -101,7 +101,7 @@ Names must be nonblank strings of at most 64 characters, excluding the exact nam
 
 ```sh
 kb project ls
-kb project new "abs+" --color "#aabbcc" --repo https://github.com/o/r
+kb project new "abs+" --color "#aabbcc" --repo https://git.borodutch.com/o/r
 kb project show "abs+"
 kb project set "abs+" --color "#112233" --repo none
 kb project rename "abs+" "org/repo"

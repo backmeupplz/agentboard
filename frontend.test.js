@@ -37,7 +37,7 @@ function app({ storageFails = false } = {}) {
     fetch: async (url, options) => { requests.push([url, options]); const r = response; return { ok: r.status === 200, status: r.status, headers: { get: () => 'application/json' }, json: async () => r.data } },
   })
   // Only replace browser-only import and automatic startup; all app logic is unchanged.
-  vm.runInContext(source.replace(/^import markdownit[^\n]*\n/, '').replace(/\nstart\(\)\s*$/, '\n') + '\nglobalThis.app = { S, card, upsert, matches, refreshIdentity, connect, showAuth }', context)
+  vm.runInContext(source.replace(/^import markdownit[^\n]*\n/, '').replace(/\nstart\(\)\s*$/, '\n') + '\nglobalThis.app = { S, card, upsert, matches, refreshIdentity, connect, showAuth, shortLink, linkIcon }', context)
   const api = context.app
   api.S.me = { id: 7, name: 'viewer' }; api.S.board = { projects: [], users: [] }
   api.S.f = { q: '', project: '', assignee: '' }
@@ -61,6 +61,22 @@ test('cards use stable numeric viewer identity, never names or selected filters'
   }
   a.S.me = null
   assert.equal(highlighted(a.card({ ...ticket, assignee: null, assignee_id: null })), false)
+})
+
+test('Forgejo and GitHub links shorten to owner/repo #n with forge icons', () => {
+  const { shortLink, linkIcon } = app()
+  for (const [u, short, icon] of [
+    ['https://git.borodutch.com/backmeupplz/agentboard/pulls/13', 'backmeupplz/agentboard #13', 'git-pull-request'],
+    ['https://git.borodutch.com/backmeupplz/agentboard/issues/4#issuecomment-9', 'backmeupplz/agentboard #4', 'link'],
+    ['https://git.borodutch.com/Borodutch/veydrift', 'Borodutch/veydrift', 'folder-git-2'],
+    ['https://git.borodutch.com/Borodutch/veydrift.git', 'Borodutch/veydrift', 'folder-git-2'],
+    ['https://github.com/BigWhaleLabs/eggs-frontend/pull/16', 'BigWhaleLabs/eggs-frontend #16', 'git-pull-request'],
+    ['https://github.com/o/r/', 'o/r', 'folder-git-2'],
+    ['https://example.com/x', 'example.com/x', 'link'],
+  ]) {
+    assert.equal(shortLink(u), short, u)
+    assert.equal(linkIcon(u), icon, u)
+  }
 })
 
 test('upsert replaces assignment styling and honors filters independently', () => {
