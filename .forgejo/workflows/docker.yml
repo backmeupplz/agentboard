@@ -1,0 +1,85 @@
+name: Docker
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test
+        run: npm ci && npm test
+
+      - name: Point docker at the runner's Docker daemon
+        run: |
+          # Jobs have no Docker socket: the runner's dind daemon listens on the job network's gateway
+          g=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
+          echo "DOCKER_HOST=tcp://$((16#${g:6:2})).$((16#${g:4:2})).$((16#${g:2:2})).$((16#${g:0:2})):2375" >> "$GITHUB_ENV"
+
+      # No setup-qemu-action: its registrations vanish when the binfmt container exits inside the
+      # rootless dind. The runner's binfmt sidecar keeps qemu-aarch64 registered there for linux/arm64.
+      - uses: docker/setup-buildx-action@v3
+        id: buildx
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: backmeupplz
+          password: ${{ secrets.GH_MIRROR_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+          # keep the GHCR package linked to the GitHub mirror
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # The builder lives on the runner's shared dind daemon; the action's own cleanup can time out
+      # stopping it and leave the container and its cache volume behind
+      - name: Remove buildx builder
+        if: always() && steps.buildx.outputs.name
+        env:
+          B: ${{ steps.buildx.outputs.name }}
+        run: docker buildx rm "$B" || { docker rm -f "buildx_buildkit_${B}0"; docker volume rm "buildx_buildkit_${B}0_state"; }
+
+  # Releases don't mirror: publish the same release on GitHub once the tag has reached the mirror
+  github-release:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_MIRROR_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          TITLE: ${{ github.event.release.name }}
+          NOTES: ${{ github.event.release.body }}
+        run: |
+          for i in $(seq 30); do gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1 && break; sleep 10; done
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$REPO" --verify-tag --title "${TITLE:-$TAG}" --notes "$NOTES"
