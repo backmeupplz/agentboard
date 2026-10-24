@@ -18,8 +18,8 @@ jobs:
     # in forgejo-ci's ~/Library/Caches/ms-playwright). Outsider PRs run on Linux
     # in the Playwright image (Node 24 + Chromium + system deps preinstalled;
     # keep its tag equal to @playwright/test in package-lock.json).
-    runs-on: ${{ (github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'macos-latest' || 'ubuntu-latest' }}
-    container: ${{ !(github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'mcr.microsoft.com/playwright:v1.63.0-noble' || '' }}
+    runs-on: ${{ (github.event_name != 'pull_request' || contains(fromJSON('["renovate","claude"]'), github.event.pull_request.user.login)) && 'macos-latest' || 'ubuntu-latest' }}
+    container: ${{ !(github.event_name != 'pull_request' || contains(fromJSON('["renovate","claude"]'), github.event.pull_request.user.login)) && 'mcr.microsoft.com/playwright:v1.63.0-noble' || '' }}
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
