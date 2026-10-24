@@ -14,15 +14,17 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    # Node 24 + Chromium + its system deps preinstalled; keep the tag equal to
-    # @playwright/test in package-lock.json.
-    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    # Our pushes and PRs run on the Mac runners (Homebrew Node, Chromium kept
+    # in forgejo-ci's ~/Library/Caches/ms-playwright). Outsider PRs run on Linux
+    # in the Playwright image (Node 24 + Chromium + system deps preinstalled;
+    # keep its tag equal to @playwright/test in package-lock.json).
+    runs-on: ${{ (github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'macos-latest' || 'ubuntu-latest' }}
+    container: ${{ !(github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'mcr.microsoft.com/playwright:v1.63.0-noble' || '' }}
     steps:
       - uses: actions/checkout@v4
       - run: npm ci
-      # No-op while the image tag matches; downloads the browser if they drift.
-      - run: npx playwright install chromium
+      # No-op once the browser for this Playwright version is present.
+      - run: npx playwright install --only-shell chromium
       - name: Unit and layout tests in parallel
         run: |
           npm test > unit.log 2>&1 & unit=$!
@@ -32,8 +34,9 @@ jobs:
           exit ${layout:-0}
 
   nix:
+    # No Nix on the Mac runners, so this stays on Linux. Nix preinstalled in
+    # the image; it has no Node, so check out with plain git.
     runs-on: ubuntu-latest
-    # Nix preinstalled; no Node in this image, so check out with plain git.
     container: nixos/nix:2.35.4
     steps:
       - run: |
