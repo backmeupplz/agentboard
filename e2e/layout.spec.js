@@ -19,7 +19,8 @@ async function board(page) {
       ticket = { ...ticket, ...route.request().postDataJSON() }
       return route.fulfill({ json: ticket })
     }
-    if (path === '/api/stream') return route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' })
+    // The fixture stream ends at once; a long retry stops EventSource from reconnecting and re-rendering the board mid-test.
+    if (path === '/api/stream') return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 3600000\n: fixture\n\n' })
     if (path === '/vendor/markdown-it.mjs') return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../node_modules/markdown-it/dist/browser/markdown-it.esm.min.mjs', import.meta.url), 'utf8') })
     const file = path === '/' ? 'index.html' : path.slice(1)
     if (['index.html', 'app.js', 'theme.js', 'style.css', 'icons.svg'].includes(file)) return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html', body: await publicFile(file) })

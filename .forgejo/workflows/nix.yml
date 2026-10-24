@@ -1,0 +1,55 @@
+name: Nix
+
+# Builds the flake package (its checkPhase runs the unit tests in the Nix
+# sandbox), so it only runs when something that goes into it changes: the
+# flake, the npm lockfile, or a file in nix/package.nix's fileset.
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - package.json
+      - package-lock.json
+      - server.js
+      - API.md
+      - bin/**
+      - public/**
+      - test.js
+      - '*.test.js'
+      - .forgejo/workflows/nix.yml
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - package.json
+      - package-lock.json
+      - server.js
+      - API.md
+      - bin/**
+      - public/**
+      - test.js
+      - '*.test.js'
+      - .forgejo/workflows/nix.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  nix:
+    # No Nix on the Mac runners, so this stays on Linux. Nix preinstalled in
+    # the image; it has no Node, so check out with plain git.
+    runs-on: ubuntu-latest
+    container: nixos/nix:2.35.4
+    steps:
+      - run: |
+          git init -q . && git fetch -q --depth=1 ${{ github.server_url }}/${{ github.repository }} ${{ github.ref }}
+          git checkout -q FETCH_HEAD
+          # -j auto: fetch the npm tarballs in parallel (the image defaults to one build at a time)
+          nix --extra-experimental-features 'nix-command flakes' flake check -L -j auto

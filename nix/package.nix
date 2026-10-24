@@ -37,6 +37,8 @@ buildNpmPackage {
   npmDeps = importNpmLock { npmRoot = src; };
   npmConfigHook = importNpmLock.npmConfigHook;
   dontNpmBuild = true;
+  # Playwright is only for the e2e layout tests; keep it out of the build and the package.
+  npmInstallFlags = [ "--omit=dev" ];
 
   nativeBuildInputs = [ makeWrapper ];
 

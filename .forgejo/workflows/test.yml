@@ -8,21 +8,28 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Our pushes and PRs run on the Mac runners (Homebrew Node, Chromium kept
+    # in forgejo-ci's ~/Library/Caches/ms-playwright). Outsider PRs run on Linux
+    # in the Playwright image (Node 24 + Chromium + system deps preinstalled;
+    # keep its tag equal to @playwright/test in package-lock.json).
+    runs-on: ${{ (github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'macos-latest' || 'ubuntu-latest' }}
+    container: ${{ !(github.event_name != 'pull_request' || contains(fromJSON('["backmeupplz","renovate","claude"]'), github.event.pull_request.user.login)) && 'mcr.microsoft.com/playwright:v1.63.0-noble' || '' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: npm ci && npm test
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:layout
+      - run: npm ci
+      # No-op once the browser for this Playwright version is present.
+      - run: npx playwright install --only-shell chromium
+      - name: Unit and layout tests in parallel
+        run: |
+          npm test > unit.log 2>&1 & unit=$!
+          npm run test:layout || layout=$?
+          wait $unit || { cat unit.log; exit 1; }
+          cat unit.log
+          exit ${layout:-0}
 
-  nix:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
-      - run: nix flake check -L

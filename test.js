@@ -1,7 +1,8 @@
 // End-to-end check: boots a real server on a temp DB and walks the agent workflow.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn, execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,7 @@ const [base, setupToken] = await new Promise((resolve, reject) => {
 })
 after(() => { srv.kill(); fs.rmSync(dir, { recursive: true, force: true }) })
 
+const execFileAsync = promisify(execFile)
 const req = async (method, p, { auth, body, type, headers = {} } = {}) => {
   if (auth?.startsWith('ab_session=')) headers.Cookie = auth
   else if (auth) headers.Authorization = 'Bearer ' + auth
@@ -201,53 +203,55 @@ test('project auth does not grant administrative privileges', async () => {
   assert.equal((await req('GET', '/api/projects/Validation', { auth: key })).data.name, 'Validation')
 })
 
-test('project CLI is discoverable and encodes names', () => {
-  const run = (...args) => execFileSync(process.execPath, ['bin/kb.mjs', ...args], {
-    env: { ...process.env, AGENTBOARD_URL: base, AGENTBOARD_KEY: key }, input: '', stdio: ['pipe', 'pipe', 'pipe'],
-  }).toString()
-  const cli = (...args) => JSON.parse(run('project', ...args))
-  assert.match(run('help'), /project <ls\|show\|new\|set\|rename\|delete>/)
-  assert.match(run('project', 'help'), /agents and humans/)
-  assert.match(run('help'), /all following arguments are positional/)
-  assert.match(run('project', 'help'), /All arguments after -- are positional/)
-  assert.match(run('project'), /human-only/)
-  for (const name of ['abs+', 'CLI space', 'CLI/org%2Frepo?#']) {
-    assert.deepEqual(cli('new', name), { name, color: '#6e7cff', repo: null })
-    assert.equal(cli('show', name).name, name)
-    assert.ok(cli('ls').some(p => p.name === name))
-    assert.equal(cli('set', name, '--color', '#abcdef', '--repo', 'https://example.com/repo').repo, 'https://example.com/repo')
-    const renamed = name + ' renamed/slash'
-    assert.equal(cli('rename', name, renamed).name, renamed)
-    const finalName = renamed + ' final'
-    assert.deepEqual(cli('set', renamed, '--name', finalName, '--repo', 'none'), { name: finalName, color: '#abcdef', repo: null })
-    assert.deepEqual(cli('delete', finalName), { ok: true })
-    assert.throws(() => cli('show', finalName), e => e.status === 1 && /404/.test(e.stderr.toString()))
+// ~70 CLI spawns: independent cases run concurrently, each case's steps stay in order.
+test('project CLI is discoverable and encodes names', async () => {
+  const run = (...args) => {
+    const p = execFileAsync(process.execPath, ['bin/kb.mjs', ...args], { env: { ...process.env, AGENTBOARD_URL: base, AGENTBOARD_KEY: key } })
+    p.child.stdin.end()
+    return p.then(r => r.stdout, e => { e.status = e.code; throw e })
   }
-  for (const name of ['--odd', '--', '--__proto__']) {
-    const original = { name, color: '#123456', repo: 'https://example.com/repo' }
-    assert.deepEqual(cli('new', '--color', original.color, '--repo', original.repo, '--', name), original)
-    assert.deepEqual(cli('show', '--', name), original)
-    assert.deepEqual(cli('set', '--color', '#abcdef', '--repo', 'none', '--', name), { name, color: '#abcdef', repo: null })
-    const renamed = name + '-renamed'
-    assert.equal(cli('rename', '--', name, renamed).name, renamed)
-    const finalName = name + '-final'
-    assert.equal(cli('set', '--name', finalName, '--', renamed).name, finalName)
-    assert.deepEqual(cli('delete', '--', finalName), { ok: true })
-    assert.throws(() => cli('show', '--', finalName), e => e.status === 1 && /404/.test(e.stderr.toString()))
-  }
-  // The shared parser treats everything after the sentinel as positional, not options.
-  const ticket = JSON.parse(run('new', '--body', 'Sentinel body', '--', '--odd', '--color', 'red', '--'))
-  assert.equal(ticket.title, '--odd --color red --')
-  assert.equal(ticket.body, 'Sentinel body')
-  for (const args of [['new'], ['delete'], ['rename', 'x'], ['unknown'], ['ls', 'extra'], ['set', 'Validation', '--colr', '#123456'], ['set', '--', 'Validation', '--color', '#123456']]) {
-    assert.throws(() => cli(...args), e => e.status === 1)
-  }
-  for (const option of ['--__proto__', '--constructor', '--toString']) {
-    assert.throws(() => cli('set', 'Validation', option, 'ignored'), e => e.status === 1 && e.stderr.toString().includes(`unknown option ${option}`))
-  }
-  assert.deepEqual(cli('show', 'Validation'), { name: 'Validation', color: '#6e7cff', repo: null })
-  assert.throws(() => cli('new', 'Invalid CLI', '--color', 'red'), e => e.status === 1 && /400/.test(e.stderr.toString()))
-  assert.throws(() => cli('new', 'VALIDATION'), e => e.status === 1 && /409/.test(e.stderr.toString()))
+  const cli = async (...args) => JSON.parse(await run('project', ...args))
+  const fails = (args, check = () => true) => assert.rejects(cli(...args), e => e.status === 1 && check(e.stderr.toString()))
+  await Promise.all([
+    run('help').then(h => { assert.match(h, /project <ls\|show\|new\|set\|rename\|delete>/); assert.match(h, /all following arguments are positional/) }),
+    run('project', 'help').then(h => { assert.match(h, /agents and humans/); assert.match(h, /All arguments after -- are positional/) }),
+    run('project').then(h => assert.match(h, /human-only/)),
+    ...['abs+', 'CLI space', 'CLI/org%2Frepo?#'].map(async name => {
+      assert.deepEqual(await cli('new', name), { name, color: '#6e7cff', repo: null })
+      assert.equal((await cli('show', name)).name, name)
+      assert.ok((await cli('ls')).some(p => p.name === name))
+      assert.equal((await cli('set', name, '--color', '#abcdef', '--repo', 'https://example.com/repo')).repo, 'https://example.com/repo')
+      const renamed = name + ' renamed/slash'
+      assert.equal((await cli('rename', name, renamed)).name, renamed)
+      const finalName = renamed + ' final'
+      assert.deepEqual(await cli('set', renamed, '--name', finalName, '--repo', 'none'), { name: finalName, color: '#abcdef', repo: null })
+      assert.deepEqual(await cli('delete', finalName), { ok: true })
+      await fails(['show', finalName], err => /404/.test(err))
+    }),
+    ...['--odd', '--', '--__proto__'].map(async name => {
+      const original = { name, color: '#123456', repo: 'https://example.com/repo' }
+      assert.deepEqual(await cli('new', '--color', original.color, '--repo', original.repo, '--', name), original)
+      assert.deepEqual(await cli('show', '--', name), original)
+      assert.deepEqual(await cli('set', '--color', '#abcdef', '--repo', 'none', '--', name), { name, color: '#abcdef', repo: null })
+      const renamed = name + '-renamed'
+      assert.equal((await cli('rename', '--', name, renamed)).name, renamed)
+      const finalName = name + '-final'
+      assert.equal((await cli('set', '--name', finalName, '--', renamed)).name, finalName)
+      assert.deepEqual(await cli('delete', '--', finalName), { ok: true })
+      await fails(['show', '--', finalName], err => /404/.test(err))
+    }),
+    // The shared parser treats everything after the sentinel as positional, not options.
+    run('new', '--body', 'Sentinel body', '--', '--odd', '--color', 'red', '--').then(out => {
+      const ticket = JSON.parse(out)
+      assert.equal(ticket.title, '--odd --color red --')
+      assert.equal(ticket.body, 'Sentinel body')
+    }),
+    ...[['new'], ['delete'], ['rename', 'x'], ['unknown'], ['ls', 'extra'], ['set', 'Validation', '--colr', '#123456'], ['set', '--', 'Validation', '--color', '#123456']].map(args => fails(args)),
+    ...['--__proto__', '--constructor', '--toString'].map(option => fails(['set', 'Validation', option, 'ignored'], err => err.includes(`unknown option ${option}`))),
+    fails(['new', 'Invalid CLI', '--color', 'red'], err => /400/.test(err)),
+    fails(['new', 'VALIDATION'], err => /409/.test(err)),
+  ])
+  assert.deepEqual(await cli('show', 'Validation'), { name: 'Validation', color: '#6e7cff', repo: null })
 })
 
 test('project writes emit metadata events', async () => {
