@@ -111,29 +111,36 @@ for (const width of [320, 1024]) {
   })
 }
 
-// 1, 3 and 6 projects on the narrowest lane and on phones: the number and the age stay on the first line,
-// and the chips wrap between them without overflowing the card.
+// 1, 3 and 6 projects on the narrowest lane and on phones: the number and the chips share the first row and wrap
+// across the whole card; the age sits bottom right in the footer, after the assignee or on its own.
 const many = [1, 3, 6].map((n, i) => ({ ...ticket42, id: 50 + i, title: n + ' projects', project: projects[1], projects: projects.slice(1, 1 + n) }))
 many.push({ ...ticket42, id: 60, title: 'Six projects with the long one', projects: projects.slice(0, 6) })
-for (const width of [320, 390, 1024]) {
-  test('cards keep the number and age on the first line with 1, 3 and 6 projects at ' + width + 'px', async ({ page }, info) => {
-    await page.setViewportSize({ width, height: 900 })
+many.push({ ...ticket42, id: 61, title: 'Nobody on it', assignee: null, assignee_id: null, projects: projects.slice(1, 4) })
+for (const width of [320, 390, 1400]) {
+  test('cards: chips wrap across the first row and the age sits bottom right with 1, 3 and 6 projects at ' + width + 'px', async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 1100 })
     await board(page, many)
     await page.screenshot({ path: info.outputPath('cards.png') })
     const cards = await page.locator('.card').evaluateAll(els => els.map(c => {
-      const r = e => e.getBoundingClientRect(), id = r(c.querySelector('.id')), age = r(c.querySelector('.meta > time')), box = c.querySelector('.flairs')
-      const chips = [...box.children].map(r)
-      return { n: chips.length, idTop: id.top, ageTop: age.top, ageRight: age.right, metaRight: r(c.querySelector('.meta')).right,
-        chipsBetween: chips.every(ch => ch.left >= id.right && ch.right <= age.left), firstRowTop: chips[0]?.top ?? id.top,
-        boxFits: box.scrollWidth <= box.clientWidth, cardFits: c.scrollWidth <= c.clientWidth }
+      const r = e => e.getBoundingClientRect(), meta = r(c.querySelector('.meta')), id = r(c.querySelector('.meta > .id'))
+      const chips = [...c.querySelectorAll('.meta > .flair')].map(r), foot = c.querySelector('.card-foot'), age = r(foot.querySelector('time'))
+      const rows = [...new Set(chips.map(ch => Math.round(ch.top)))]
+      return { n: chips.length, rows: rows.length, firstChipTop: chips[0].top, idTop: id.top, idHeight: id.height,
+        firstChipFitsBesideId: chips[0].width <= meta.width - id.width - 6,
+        wrappedStartLeft: chips.filter(ch => Math.round(ch.top) !== rows[0]).every(ch => ch.left >= meta.left - 0.5) &&
+          rows.slice(1).every(top => Math.abs(Math.min(...chips.filter(ch => Math.round(ch.top) === top).map(ch => ch.left)) - meta.left) < 1.5),
+        chipsInside: chips.every(ch => ch.left >= meta.left - 0.5 && ch.right <= meta.right + 0.5),
+        ageRight: Math.abs(age.right - r(foot).right) < 1.5, ageBelowTitle: age.top >= r(c.querySelector('.title')).bottom,
+        assigneeLeft: !foot.querySelector('.who') || Math.abs(r(foot.querySelector('.who')).left - r(foot).left) < 1.5,
+        cardFits: c.scrollWidth <= c.clientWidth }
     }))
-    expect(cards.map(c => c.n).sort((a, b) => a - b)).toEqual([1, 3, 6, 6])
+    expect(cards.map(c => c.n).sort((a, b) => a - b)).toEqual([1, 3, 3, 6, 6])
     for (const c of cards) {
-      expect(Math.abs(c.idTop - c.ageTop)).toBeLessThan(1.5)
-      expect(Math.abs(c.ageRight - c.metaRight)).toBeLessThan(1.5)
-      expect(Math.abs(c.firstRowTop - c.idTop)).toBeLessThan(3)
-      expect(c).toMatchObject({ chipsBetween: true, boxFits: true, cardFits: true })
+      // The number and the first chip share a row, unless that chip is too long to fit beside it (then it starts the next row).
+      if (c.firstChipFitsBesideId) expect(Math.abs(c.firstChipTop - c.idTop)).toBeLessThan(c.idHeight)
+      expect(c).toMatchObject({ wrappedStartLeft: true, chipsInside: true, ageRight: true, ageBelowTitle: true, assigneeLeft: true, cardFits: true })
     }
+    if (width <= 390) expect(Math.max(...cards.map(c => c.rows))).toBeGreaterThan(1) // the six-chip cards really wrap here
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
   })
 }

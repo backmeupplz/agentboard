@@ -95,14 +95,12 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .card .title { margin: 5px 0 0; word-break: break-word; line-height: 1.4; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); min-width: 0; }
-/* The number and the age keep the first line; any number of project chips wrap in the space between them. */
-.card .meta { align-items: flex-start; }
-.card .meta > .id, .card .meta > time { flex: none; line-height: 18px; }
-.card .flairs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
-.card .flair { line-height: 16px; }
+/* First row: the number and the project chips, wrapping across the whole card. The age sits bottom right in the footer. */
+.card .meta { flex-wrap: wrap; gap: 4px 6px; }
 .card .flair, .card .who { max-width: 100%; white-space: normal; overflow-wrap: anywhere; min-width: 0; }
 .card .flair::before { flex: none; }
 .card-foot { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 8px; }
+.card-foot > time { margin-left: auto; font-size: 12px; color: var(--dim); }
 .id { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
 .flair { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; padding: 1px 8px 1px 7px; border-radius: 99px;
   color: var(--flair-text); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; }
