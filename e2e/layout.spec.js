@@ -8,16 +8,21 @@ const user = 'AnAgentWithAnUnbrokenNameThatMustNotWidenTheColumn'
 const title = 'Keep long ticket titles readable while multiple columns remain visible ' + 'UnbrokenTitle'.repeat(12)
 const columns = ['To Do', 'In Progress', 'In Review', 'Done'].map((name, i) => ({ name, slug: ['to-do', 'in-progress', 'in-review', 'done'][i], count: i === 1 ? 1 : 0 }))
 
-async function board(page) {
-  let ticket = { id: 42, title, column: 'in-progress', project, projects: [project, 'Radiant'], assignee: user, assignee_id: 7, position: 0, updated_at: new Date().toISOString() }
+const projects = [project, 'Radiant', 'todorant', 'abs+', 'plainwallet', 'quilcast', 'jev']
+const colors = ['#7c8cff', '#e0a030', '#3fb37f', '#6e7cff', '#d4537e', '#36a3d9', '#e5533d']
+const ticket42 = { id: 42, title, column: 'in-progress', project, projects: [project, 'Radiant'], assignee: user, assignee_id: 7, position: 0 }
+
+async function board(page, list = [ticket42]) {
+  const tickets = new Map(list.map(t => [t.id, { ...t, updated_at: new Date().toISOString() }]))
   await page.route('http://board.test/**', async route => {
-    const url = new URL(route.request().url()), path = url.pathname
+    const url = new URL(route.request().url()), path = url.pathname, one = /^\/api\/tickets\/(\d+)$/.exec(path)
     if (path === '/api/me') return route.fulfill({ json: { id: 7, name: user } })
-    if (path === '/api/board') return route.fulfill({ json: { columns, projects: [{ name: project, color: '#7c8cff' }, { name: 'Radiant', color: '#e0a030' }], users: [{ id: 7, name: user, kind: 'agent' }] } })
-    if (path === '/api/tickets') return route.fulfill({ json: url.searchParams.get('column') === ticket.column ? [ticket] : [] })
-    if (path === '/api/tickets/42') {
-      if (route.request().method() === 'PATCH') ticket = { ...ticket, ...route.request().postDataJSON() }
-      return route.fulfill({ json: { body: '', links: [], events: [], created_by: user, created_at: ticket.updated_at, ...ticket } })
+    if (path === '/api/board') return route.fulfill({ json: { columns, projects: projects.map((name, i) => ({ name, color: colors[i] })), users: [{ id: 7, name: user, kind: 'agent' }] } })
+    if (path === '/api/tickets') return route.fulfill({ json: [...tickets.values()].filter(t => t.column === url.searchParams.get('column')) })
+    if (one) {
+      const t = tickets.get(+one[1])
+      if (route.request().method() === 'PATCH') Object.assign(t, route.request().postDataJSON())
+      return route.fulfill({ json: { body: '', links: [], events: [], created_by: user, created_at: t.updated_at, ...t } })
     }
     // The fixture stream ends at once; a long retry stops EventSource from reconnecting and re-rendering the board mid-test.
     if (path === '/api/stream') return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 3600000\n: fixture\n\n' })
@@ -30,7 +35,7 @@ async function board(page) {
   await expect(page.locator('.col')).toHaveCount(4)
   // Reveal the populated lane so lazy loading works even on phone viewports.
   await page.locator('.col').nth(1).scrollIntoViewIfNeeded()
-  await expect(page.locator('.card')).toHaveCount(1)
+  await expect(page.locator('.card')).toHaveCount(list.length)
 }
 
 for (const width of [320, 390, 640, 720, 721, 850, 1024, 1920]) {
@@ -105,3 +110,39 @@ for (const width of [320, 1024]) {
     await expect(picker.locator('.flair')).toHaveText([project, 'Radiant'])
   })
 }
+
+// 1, 3 and 6 projects on the narrowest lane and on phones: the number and the age stay on the first line,
+// and the chips wrap between them without overflowing the card.
+const many = [1, 3, 6].map((n, i) => ({ ...ticket42, id: 50 + i, title: n + ' projects', project: projects[1], projects: projects.slice(1, 1 + n) }))
+many.push({ ...ticket42, id: 60, title: 'Six projects with the long one', projects: projects.slice(0, 6) })
+for (const width of [320, 390, 1024]) {
+  test('cards keep the number and age on the first line with 1, 3 and 6 projects at ' + width + 'px', async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 })
+    await board(page, many)
+    await page.screenshot({ path: info.outputPath('cards.png') })
+    const cards = await page.locator('.card').evaluateAll(els => els.map(c => {
+      const r = e => e.getBoundingClientRect(), id = r(c.querySelector('.id')), age = r(c.querySelector('.meta > time')), box = c.querySelector('.flairs')
+      const chips = [...box.children].map(r)
+      return { n: chips.length, idTop: id.top, ageTop: age.top, ageRight: age.right, metaRight: r(c.querySelector('.meta')).right,
+        chipsBetween: chips.every(ch => ch.left >= id.right && ch.right <= age.left), firstRowTop: chips[0]?.top ?? id.top,
+        boxFits: box.scrollWidth <= box.clientWidth, cardFits: c.scrollWidth <= c.clientWidth }
+    }))
+    expect(cards.map(c => c.n).sort((a, b) => a - b)).toEqual([1, 3, 6, 6])
+    for (const c of cards) {
+      expect(Math.abs(c.idTop - c.ageTop)).toBeLessThan(1.5)
+      expect(Math.abs(c.ageRight - c.metaRight)).toBeLessThan(1.5)
+      expect(Math.abs(c.firstRowTop - c.idTop)).toBeLessThan(3)
+      expect(c).toMatchObject({ chipsBetween: true, boxFits: true, cardFits: true })
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+  })
+}
+
+test('the ticket dialog fits six projects on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 })
+  await board(page, many)
+  await page.locator('.card', { hasText: 'Six projects with the long one' }).click()
+  const picker = page.locator('#ticket .projects')
+  await expect(picker.locator('.flair')).toHaveCount(6)
+  expect(await picker.evaluate(p => p.scrollWidth <= p.clientWidth)).toBe(true)
+})

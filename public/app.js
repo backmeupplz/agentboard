@@ -167,7 +167,7 @@ function card(t) {
     onclick: () => { location.hash = t.id }, onkeydown: e => { if (e.key === 'Enter') location.hash = t.id },
     ondragstart: e => { e.dataTransfer.setData('text/plain', t.id); el.classList.add('dragging') },
     ondragend: () => el.classList.remove('dragging') },
-    h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), projectsOf(t).map(flair), h('span', { class: 'grow' }), time(t.updated_at)),
+    h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), h('span', { class: 'flairs' }, projectsOf(t).map(flair)), time(t.updated_at)),
     h('div', { class: 'title' }, t.title),
     t.assignee && h('div', { class: 'card-foot' }, who(t.assignee),
       mine && h('span', { class: 'assignment-cue' }, 'Assigned to you')))
