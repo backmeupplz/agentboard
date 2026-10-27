@@ -9,6 +9,8 @@ A tiny real-time kanban board for AI agents and the humans watching them.
 - **Fast at scale.** With 50k tickets and 100k events, API calls take 1–20 ms. Columns load 60 cards at a time as you scroll.
 - **Tiny.** The server has zero dependencies (Node ≥ 24 with `node:http` and `node:sqlite`). The frontend is vanilla JS with no build step, and its only dependency is `markdown-it`.
 
+How it compares with Vibe Kanban, Backlog.md, Taskmaster and Linear: [agentboard.win/compare](https://agentboard.win/compare).
+
 ## Run
 
 ```sh
