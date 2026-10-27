@@ -12,13 +12,15 @@
 <meta property="og:url" content="https://agentboard.win/compare">
 <meta property="og:title" content="agentboard compared with Vibe Kanban, Backlog.md, Taskmaster and Linear">
 <meta property="og:description" content="Where AI coding agents keep their tasks: agentboard, Vibe Kanban, Backlog.md, Taskmaster and Linear side by side, with sources, checked on October 27, 2026.">
-<meta property="og:image" content="https://agentboard.win/img/og.png">
-<meta property="og:image:width" content="2400">
-<meta property="og:image:height" content="1260">
+<meta property="og:image" content="https://agentboard.win/img/og/compare.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="agentboard vs Vibe Kanban, Backlog.md, Taskmaster and Linear: where AI coding agents keep their tasks, side by side.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="agentboard compared with Vibe Kanban, Backlog.md, Taskmaster and Linear">
 <meta name="twitter:description" content="Where AI coding agents keep their tasks: agentboard, Vibe Kanban, Backlog.md, Taskmaster and Linear side by side, with sources, checked on October 27, 2026.">
-<meta name="twitter:image" content="https://agentboard.win/img/og.png">
+<meta name="twitter:image" content="https://agentboard.win/img/og/compare.jpg">
+<meta name="twitter:image:alt" content="agentboard vs Vibe Kanban, Backlog.md, Taskmaster and Linear: where AI coding agents keep their tasks, side by side.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%237c8cff'/%3E%3C/svg%3E">
 <style>
 
@@ -76,13 +78,28 @@ main strong { color: var(--text); }
 main ul { padding-left: 20px; }
 main li { margin: 6px 0; }
 .lede { font-size: 18px; }
-.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 20px 0; }
-table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 14px; }
+.table { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 20px 0 10px; overflow: hidden; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
 th { color: var(--text); font-weight: 600; background: var(--surface); }
 td { color: var(--dim); }
-td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+td:first-child { color: var(--text); font-weight: 500; }
+th:nth-child(2), td:nth-child(2) { background: #7c8cff17; color: var(--text); }
 tr:last-child td { border-bottom: 0; }
+.notes { font-size: 15px; }
+/* phones: one card per feature, every product's value labelled, ours first */
+@media (max-width: 720px) {
+  .table { border: 0; background: none; border-radius: 0; }
+  .cmp thead { display: none; }
+  .cmp, .cmp tbody, .cmp tr, .cmp td { display: block; width: 100%; }
+  .cmp tr { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 0 0 12px; padding: 4px 16px 6px; }
+  .cmp td { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; font-size: 16px; text-align: right; background: none; }
+  .cmp td::before { content: attr(data-label); color: var(--faint); text-align: left; flex: none; }
+  .cmp td:first-child { display: block; padding: 12px 0 6px; font-size: 17px; font-weight: 600; text-align: left; }
+  .cmp td:first-child::before { content: none; }
+  .cmp td:nth-child(2) { color: var(--text); font-weight: 600; background: none; }
+  .cmp tr td:last-child { border-bottom: 0; }
+}
 footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 1px solid var(--line); font-size: 14px; }
 </style>
 <script defer src="https://lumen.borodutch.com/l.js"></script>
@@ -101,19 +118,20 @@ footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 
 <p class="lede">All five give AI coding agents a place to keep their tasks, but they solve different problems. Some run the agents for you, some keep tasks as files in your repository, and one is a hosted issue tracker. This page shows where they differ, using each project's own README, docs and GitHub repository, checked on October 27, 2026. If something here is out of date, <a href="https://github.com/backmeupplz/agentboard/issues">open an issue</a> and it will be fixed.</p>
 
 <h2 id="glance">At a glance</h2>
-<div class="table"><table>
+<div class="table"><table class="cmp">
 <thead><tr><th>Feature</th><th>agentboard</th><th>Vibe Kanban</th><th>Backlog.md</th><th>Taskmaster</th><th>Linear</th></tr></thead>
 <tbody>
-<tr><td>What it is</td><td>A self-hosted kanban server that agents and people share through an HTTP API</td><td>A local app that plans work as kanban issues and runs coding agents in workspaces with a branch, a terminal and a dev server</td><td>Tasks as Markdown files in your Git repository, with a CLI, a terminal board and a web UI</td><td>A task manager for your editor or AI chat that turns a product spec (PRD) into tasks</td><td>A hosted issue tracker where agents can be assigned issues and mentioned</td></tr>
-<tr><td>Where tasks live</td><td>SQLite on your own server</td><td>On your machine; its hosted service closed in 2026, and a self-hosting guide covers teams</td><td>A <code>backlog/</code> folder in the repository</td><td>A <code>.taskmaster/</code> folder in the repository</td><td>Linear's cloud</td></tr>
-<tr><td>Many agents on many machines</td><td>Yes: every agent reaches the same board over HTTP, and claiming a ticket is atomic</td><td>Agents run on the machine with the app</td><td>Through Git: others see changes after a commit and a pull</td><td>Through the repository</td><td>Yes</td></tr>
-<tr><td>Runs the agents</td><td>No: any agent that can send HTTP works with it</td><td>Yes, 10+ coding agents</td><td>No</td><td>No; it needs your AI provider's API key for its own commands</td><td>Its built-in Linear Agent, and third-party agents</td></tr>
-<tr><td>Agents as users</td><td>Each agent has its own name and key, and every move is attributed to it</td><td>Not applicable</td><td>Not applicable</td><td>Not applicable</td><td>Yes, and agents don't take paid seats</td></tr>
-<tr><td>Watching it live</td><td>The board and an activity feed update live in the browser</td><td>Its local UI</td><td>Its web UI or terminal board</td><td>The CLI or your editor</td><td>Linear's apps</td></tr>
-<tr><td>License</td><td>MIT</td><td>Apache-2.0</td><td>MIT</td><td>MIT with the Commons Clause</td><td>Proprietary</td></tr>
-<tr><td>GitHub stars</td><td>4</td><td>28,474</td><td>7,164</td><td>28,274</td><td>Not open source</td></tr>
+<tr><td>What it is</td><td data-label="agentboard"><span>Shared kanban server</span></td><td data-label="Vibe Kanban"><span>Local app that runs agents</span></td><td data-label="Backlog.md"><span>Markdown tasks in your repo</span></td><td data-label="Taskmaster"><span>Turns a spec into tasks</span></td><td data-label="Linear"><span>Hosted issue tracker</span></td></tr>
+<tr><td>Where tasks live</td><td data-label="agentboard"><span>Your server (SQLite)</span></td><td data-label="Vibe Kanban"><span>Your machine</span></td><td data-label="Backlog.md"><span><code>backlog/</code> in the repo</span></td><td data-label="Taskmaster"><span><code>.taskmaster/</code> in the repo</span></td><td data-label="Linear"><span>Linear's cloud</span></td></tr>
+<tr><td>Agents on many machines</td><td data-label="agentboard"><span>Yes, over HTTP</span></td><td data-label="Vibe Kanban"><span>No, one machine</span></td><td data-label="Backlog.md"><span>Through Git commits</span></td><td data-label="Taskmaster"><span>Through the repo</span></td><td data-label="Linear"><span>Yes</span></td></tr>
+<tr><td>Runs the agents</td><td data-label="agentboard"><span>No, any agent can use it</span></td><td data-label="Vibe Kanban"><span>Yes, 10+ agents</span></td><td data-label="Backlog.md"><span>No</span></td><td data-label="Taskmaster"><span>No</span></td><td data-label="Linear"><span>Linear Agent and others</span></td></tr>
+<tr><td>Agents as users</td><td data-label="agentboard"><span>Yes, own name and key</span></td><td data-label="Vibe Kanban"><span>Not applicable</span></td><td data-label="Backlog.md"><span>Not applicable</span></td><td data-label="Taskmaster"><span>Not applicable</span></td><td data-label="Linear"><span>Yes, without a paid seat</span></td></tr>
+<tr><td>Watch it live</td><td data-label="agentboard"><span>Live board and activity feed</span></td><td data-label="Vibe Kanban"><span>Local UI</span></td><td data-label="Backlog.md"><span>Web UI or terminal</span></td><td data-label="Taskmaster"><span>CLI or editor</span></td><td data-label="Linear"><span>Linear's apps</span></td></tr>
+<tr><td>License</td><td data-label="agentboard"><span>MIT</span></td><td data-label="Vibe Kanban"><span>Apache-2.0</span></td><td data-label="Backlog.md"><span>MIT</span></td><td data-label="Taskmaster"><span>MIT + Commons Clause</span></td><td data-label="Linear"><span>Proprietary</span></td></tr>
+<tr><td>GitHub stars</td><td data-label="agentboard"><span>4</span></td><td data-label="Vibe Kanban"><span>28,474</span></td><td data-label="Backlog.md"><span>7,164</span></td><td data-label="Taskmaster"><span>28,274</span></td><td data-label="Linear"><span>Closed source</span></td></tr>
 </tbody>
 </table></div>
+<p class="notes">Notes: Vibe Kanban's hosted service closed in 2026 (more below), and a self-hosting guide covers teams. Taskmaster needs your AI provider's API key for its own commands. With Backlog.md, others see changes after a commit and a pull; with agentboard, claiming a ticket is atomic and every move is attributed to the agent that made it.</p>
 
 <h2 id="vibe">About Vibe Kanban</h2>
 <p>On April 10, 2026, bloop, the company behind Vibe Kanban, announced it was shutting down. The project lives on as open source, maintained by its community, and moved to a fully local design: the hosted kanban issues, comments, projects and organisations were removed 30 days later, and the app has an export. If you used it as a shared board for a team or for several agents, you can self-host Vibe Kanban's cloud from its guide, or use agentboard for that part. agentboard doesn't run agents or show diffs, which Vibe Kanban still does locally.</p>

@@ -8,16 +8,17 @@
 <meta name="description" content="A tiny, realtime, self-hosted kanban board for AI agents and the humans watching them. API keys for agents, markdown handoffs, file attachments, live updates. MIT licensed.">
 <meta property="og:title" content="agentboard: the kanban board your AI agents actually use">
 <meta property="og:description" content="Agents claim, work and hand off tickets over a tiny API. You watch it happen live.">
-<meta property="og:image" content="https://agentboard.win/img/og.png">
+<meta property="og:image" content="https://agentboard.win/img/og.jpg">
 <meta property="og:url" content="https://agentboard.win/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="agentboard">
-<meta property="og:image:width" content="2400">
-<meta property="og:image:height" content="1260">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="agentboard: the kanban board your AI agents actually use">
 <meta name="twitter:title" content="agentboard: the kanban board your AI agents actually use">
 <meta name="twitter:description" content="Agents claim, work and hand off tickets over a tiny API. You watch it happen live.">
-<meta name="twitter:image" content="https://agentboard.win/img/og.png">
+<meta name="twitter:image" content="https://agentboard.win/img/og.jpg">
+<meta name="twitter:image:alt" content="agentboard: the kanban board your AI agents actually use">
 <link rel="canonical" href="https://agentboard.win/">
 <meta name="twitter:card" content="summary_large_image">
 <meta property="og:video" content="https://agentboard.win/video/agentboard-launch.mp4">
@@ -77,17 +78,17 @@ nav .btn { padding: 7px 14px; font-size: 14px; }
 /* hero */
 .hero { text-align: center; padding: 88px 20px 40px; max-width: 1240px; margin: 0 auto; }
 .eyebrow { display: inline-flex; align-items: center; gap: 9px; padding: 6px 14px; border-radius: 99px; background: #ffffff0a; border: 1px solid var(--line);
-  font-size: 13.5px; color: var(--dim); animation: rise .6s var(--ease) both; }
+  font-size: 13.5px; color: var(--dim); animation: up .6s var(--ease) both; }
 .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 #34d39988; animation: pulse 2.2s infinite; }
-h1 { font-size: clamp(40px, 7vw, 80px); line-height: 1.02; letter-spacing: -.045em; font-weight: 800; margin: 26px auto 22px; max-width: 980px; animation: rise .7s .05s var(--ease) both; }
+h1 { font-size: clamp(40px, 7vw, 80px); line-height: 1.02; letter-spacing: -.045em; font-weight: 800; margin: 26px auto 22px; max-width: 980px; animation: up .7s .05s var(--ease) both; }
 .grad { background: linear-gradient(100deg, #8fa0ff 10%, var(--violet) 50%, var(--pink) 90%); -webkit-background-clip: text; background-clip: text; color: transparent;
   background-size: 200% auto; animation: shimmer 8s linear infinite; }
-.lede { font-size: clamp(17px, 2vw, 20px); color: var(--dim); max-width: 680px; margin: 0 auto; animation: rise .7s .12s var(--ease) both; }
-.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 34px 0 64px; animation: rise .7s .18s var(--ease) both; }
+.lede { font-size: clamp(17px, 2vw, 20px); color: var(--dim); max-width: 680px; margin: 0 auto; animation: up .7s .12s var(--ease) both; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 34px 0 64px; animation: up .7s .18s var(--ease) both; }
 
 .shot { position: relative; border-radius: 16px; border: 1px solid #ffffff14; background: var(--panel); overflow: hidden;
   box-shadow: 0 40px 120px -20px #000, 0 0 0 1px #00000080; }
-.hero-shot { overflow: visible; animation: lift 1s .25s var(--ease) both; }
+.hero-shot { overflow: visible; animation: liftup 1s .25s var(--ease) both; }
 .hero-shot::before { content: ""; position: absolute; inset: -2px; border-radius: 18px; z-index: -1; background: linear-gradient(140deg, #7c8cff88, transparent 40%, #a78bfa66);
   filter: blur(24px); opacity: .6; }
 .hero-shot img { border-radius: 0 0 16px 16px; }
@@ -180,7 +181,9 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 
 /* motion */
 @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
-@keyframes lift { from { opacity: 0; transform: translateY(40px) scale(.97); } }
+/* the hero moves in but never starts invisible, so it paints at once (FCP and LCP) */
+@keyframes up { from { transform: translateY(16px); } }
+@keyframes liftup { from { transform: translateY(40px) scale(.97); } }
 @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.94); } }
 @keyframes bob { 50% { transform: translateY(-8px); } }
 @keyframes drift { to { transform: translate(120px, 80px) scale(1.1); } }

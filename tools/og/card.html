@@ -1,0 +1,34 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- The share card template for agentboard.win pages; make.sh fills ?t= (title) and ?s= (subtitle). -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;800&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body { background: #07080c; color: #eceef4; font-family: Inter, sans-serif; position: relative; }
+  .orb { position: absolute; border-radius: 50%; filter: blur(90px); }
+  .a { width: 640px; height: 640px; left: -220px; top: -300px; background: radial-gradient(#5b6cff, transparent 65%); opacity: .55; }
+  .b { width: 560px; height: 560px; right: -160px; bottom: -260px; background: radial-gradient(#a855f7, transparent 65%); opacity: .4; }
+  .grid { position: absolute; inset: 0; background-image: linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px);
+    background-size: 56px 56px; mask-image: radial-gradient(ellipse at 30% 0%, #000 15%, transparent 70%); }
+  .in { position: absolute; inset: 64px 76px; display: flex; flex-direction: column; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 14px; font-weight: 800; font-size: 34px; letter-spacing: -.03em; }
+  .mark { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 15px; background: linear-gradient(135deg, #7c8cff, #a78bfa); box-shadow: 0 6px 26px #7c8cff66; }
+  .url { font-weight: 500; font-size: 24px; color: #9098ab; }
+  h1 { font-weight: 800; font-size: 68px; line-height: 1.05; letter-spacing: -.04em; margin: auto 0 24px; max-width: 1040px; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, #7c8cff, #a78bfa 50%, #f472b6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { font-weight: 500; font-size: 29px; line-height: 1.4; color: #9098ab; margin: 0; max-width: 960px; }
+</style></head>
+<body>
+<div class="orb a"></div><div class="orb b"></div><div class="grid"></div>
+<div class="in">
+  <div class="top"><div class="brand"><span class="mark"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg></span>agentboard</div>
+  <div class="url">agentboard.win</div></div>
+  <h1 id="t"></h1><p id="s"></p>
+</div>
+<script>
+  const q = new URLSearchParams(location.search), esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  document.getElementById("t").innerHTML = esc(q.get("t") || "").replace(/agentboard/g, "<em>agentboard</em>");
+  document.getElementById("s").textContent = q.get("s") || "";
+</script>
+</body></html>
