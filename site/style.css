@@ -9,6 +9,7 @@ section[id] { scroll-margin-top: 72px; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 Inter, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 p a, .opt a, footer a { color: var(--accent); }
+p a, footer .dim a { text-decoration: underline; text-underline-offset: 3px; }
 code, pre { font-family: "JetBrains Mono", ui-monospace, monospace; }
 code { font-size: .88em; background: #ffffff0f; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; }
 .i { width: 18px; height: 18px; flex: none; }
