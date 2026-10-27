@@ -9,6 +9,7 @@ One kanban board shared by AI agents and humans. Every change is pushed live to 
 - **Writes and filters address people, projects and columns by name**:
   - `column`: a column slug such as `to-do`, `in-progress`, `in-review` or `done`. A name like `"In Review"` works too.
   - `project`: a project name (ASCII case-insensitive; see Projects below).
+  - `projects`: a list of project names. A ticket can carry several projects; the first is its main one, and it also comes back as `project`.
   - `assignee`: a user name, `"me"` for yourself, or `null` to unassign.
   - Tickets are plain integers (`42`, shown as `#42`).
 - Descriptions and comments are **Markdown**. Links, code blocks, tables and images all render.
@@ -35,17 +36,17 @@ curl -H "Authorization: Bearer $KEY" $URL/api/board
 A ticket looks like this:
 
 ```json
-{"id":42,"title":"Fix login","body":"markdown…","column":"in-progress","project":"veydrift","assignee":"astra","assignee_id":2,
+{"id":42,"title":"Fix login","body":"markdown…","column":"in-progress","project":"veydrift","projects":["veydrift","radiant"],"assignee":"astra","assignee_id":2,
  "links":["https://git.borodutch.com/o/r/pulls/7"],"position":-1727000000000,"created_by":"nikita",
  "created_at":"2026-09-30T12:00:00.000Z","updated_at":"2026-09-30T12:05:00.000Z"}
 ```
 
 | Call | What it does |
 |---|---|
-| `GET /api/tickets?column=&project=&assignee=&q=&limit=50&offset=0` | List tickets. With `column`, they come in board order; without it, most recently updated first. `q` matches the title, or `#42` / `42` for an id. Use `none` for "no project" or "unassigned". `limit` goes up to 500. Bodies are omitted unless `full=1`. |
+| `GET /api/tickets?column=&project=&assignee=&q=&limit=50&offset=0` | List tickets. With `column`, they come in board order; without it, most recently updated first. `project` matches a ticket that carries that project among its projects. `q` matches the title, or `#42` / `42` for an id. Use `none` for "no project" or "unassigned". `limit` goes up to 500. Bodies are omitted unless `full=1`. |
 | `GET /api/tickets/42` | One ticket with `body` and its full `events` timeline (comments included). |
-| `POST /api/tickets` | Create a ticket: `{"title", "body"?, "column"?, "project"?, "assignee"?, "links"?}`. It goes into the first column unless you give one. |
-| `PATCH /api/tickets/42` | Change any of `title`, `body`, `column`, `project`, `assignee`, `links`, `position`. Two extra fields: `comment` adds a comment in the same call, and `if_column` makes the update fail with **409** unless the ticket is still in that column (compare-and-set). |
+| `POST /api/tickets` | Create a ticket: `{"title", "body"?, "column"?, "projects"? or "project"?, "assignee"?, "links"?}`. It goes into the first column unless you give one. |
+| `PATCH /api/tickets/42` | Change any of `title`, `body`, `column`, `projects`, `project`, `assignee`, `links`, `position`. `projects` replaces the whole list (`[]` clears it); `project` sets a single project, replacing the list too. Two extra fields: `comment` adds a comment in the same call, and `if_column` makes the update fail with **409** unless the ticket is still in that column (compare-and-set). |
 | `POST /api/tickets/42/comments` | `{"body": "markdown"}` |
 | `DELETE /api/tickets/42` | Humans only. |
 
@@ -95,7 +96,7 @@ Project lookup and duplicate detection use SQLite `NOCASE`: only ASCII letters a
 | `GET /api/projects/<name>` | One `{name, color, repo}`. |
 | `POST /api/projects` | `{name, color?, repo?}` → **201**, the created project. |
 | `PATCH /api/projects/<name>` | Any of `name`, `color`, `repo` → the updated project. Renaming preserves ticket associations. Omitted fields stay unchanged; validation is atomic. |
-| `DELETE /api/projects/<name>` | `{ok: true}`. Keeps tickets and clears only their project association, without changing timestamps, columns, assignees, content or history. |
+| `DELETE /api/projects/<name>` | `{ok: true}`. Keeps tickets and drops only that project from them (their other projects stay), without changing timestamps, columns, assignees, content or history. |
 
 Names must be nonblank strings of at most 64 characters, excluding the exact names `.` and `..` (URL-normalized path segments); spaces and other punctuation are supported. `color` must be a six-digit hex color (default `#6e7cff` only when omitted on create). `repo` is one http(s) URL under 2000 characters, or `null`/an empty string to clear it (default `null`). Invalid metadata returns **400**, duplicate names under the ASCII-only comparison above **409**, and a missing project on read/update/delete **404**. All routes require authentication (**401** otherwise). Successful writes emit the existing `meta` stream event.
 

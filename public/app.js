@@ -73,6 +73,7 @@ const avatar = (name, kind = userKind(name)) => kind === 'agent'
   : h('span', { class: 'avatar', style: { '--h': `hsl(${hue(name)} 45% 38%)` }, title: name }, name[0].toUpperCase())
 const who = name => name ? h('span', { class: 'who' }, avatar(name), name) : h('span', { class: 'who faint' }, 'someone')
 const flair = name => { const p = project(name); return p && h('span', { class: 'flair', style: { '--c': p.color } }, p.name) }
+const projectsOf = t => t.projects ?? (t.project ? [t.project] : [])
 
 // ---------- auth
 // Cookies are shared across tabs. Recheck on return/reconnect and notify other tabs
@@ -120,7 +121,7 @@ function showAuth(setup) {
 const matches = t => {
   const { q, project, assignee } = S.f, eq = (a, b) => (a || '').toLowerCase() === b.toLowerCase()
   const id = /^#?(\d+)$/.exec(q.trim())
-  return (!project || (project === 'none' ? !t.project : eq(t.project, project)))
+  return (!project || (project === 'none' ? !projectsOf(t).length : projectsOf(t).some(p => eq(p, project))))
     && (!assignee || (assignee === 'none' ? !t.assignee : eq(t.assignee, assignee)))
     && (!q || (id ? t.id === +id[1] : t.title.toLowerCase().includes(q.toLowerCase())))
 }
@@ -166,7 +167,7 @@ function card(t) {
     onclick: () => { location.hash = t.id }, onkeydown: e => { if (e.key === 'Enter') location.hash = t.id },
     ondragstart: e => { e.dataTransfer.setData('text/plain', t.id); el.classList.add('dragging') },
     ondragend: () => el.classList.remove('dragging') },
-    h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), flair(t.project), h('span', { class: 'grow' }), time(t.updated_at)),
+    h('div', { class: 'meta' }, h('span', { class: 'id' }, '#' + t.id), projectsOf(t).map(flair), h('span', { class: 'grow' }), time(t.updated_at)),
     h('div', { class: 'title' }, t.title),
     t.assignee && h('div', { class: 'card-foot' }, who(t.assignee),
       mine && h('span', { class: 'assignment-cue' }, 'Assigned to you')))
@@ -330,9 +331,23 @@ function route() { const id = +location.hash.slice(1); id ? openTicket(id) : dlg
 const field = (label, ...kids) => h('label', { class: 'field' }, h('span', {}, label), ...kids)
 const selects = (t, onchange) => ({
   column: h('select', { name: 'column', onchange }, options(S.board.columns.map(c => [c.slug, c.name]), t.column)),
-  project: h('select', { name: 'project', onchange }, options([['', 'None'], ...S.board.projects.map(p => [p.name, p.name])], t.project)),
   assignee: h('select', { name: 'assignee', onchange }, options([['', 'Unassigned'], ...S.board.users.map(u => [u.name, (u.kind === 'agent' ? '◆ ' : '') + u.name])], t.assignee)),
 })
+// A ticket's projects: a flair per project with a remove button, then a picker that adds one. A div, not a <label>:
+// a label would forward clicks on its text to the first remove button.
+function projectPicker(list, onchange) {
+  const el = h('div', { class: 'field' }, h('span', {}, 'Projects')), box = h('div', { class: 'projects' })
+  let pick
+  const draw = () => {
+    pick = h('select', { 'aria-label': 'Add a project', onchange: e => e.target.value && update([...list, e.target.value]) },
+      options([['', list.length ? 'Add a project…' : 'None'], ...S.board.projects.filter(p => !list.includes(p.name)).map(p => [p.name, p.name])], ''))
+    box.replaceChildren(...list.map(name => h('span', { class: 'project' }, flair(name) ?? name,
+      btn('x', 'Remove ' + name, () => update(list.filter(n => n !== name)), 'ghost icon sm'))), pick)
+  }
+  const update = next => { list = next; draw(); onchange(next) }
+  draw(); el.append(box)
+  return { el, get: () => list, set: next => { if (document.activeElement !== pick) { list = next; draw() } } }
+}
 
 async function openTicket(id) {
   openId = id
@@ -341,8 +356,10 @@ async function openTicket(id) {
   if (openId !== id) return
   const patch = async body => upsert(await api('PATCH', '/tickets/' + id, body))
   const sel = selects(t, attempt(e => patch({ [e.target.name]: e.target.value || null })))
+  const projects = projectPicker(projectsOf(t), attempt(next => patch({ projects: next })))
   const title = h('input', { class: 'title-input', 'aria-label': 'Title', onchange: attempt(e => e.target.value.trim() && patch({ title: e.target.value.trim() })) })
   const pill = h('span', { class: 'pill' }), createdBy = h('div', { class: 'dim' }), repo = h('div')
+  projects.el.append(repo)
   const desc = h('div'), linkList = h('div', { class: 'links' }), timeline = h('div', { class: 'timeline' })
   let editing = false, seen = null
   const showDesc = () => desc.replaceChildren(h('div', { class: 'desc' }, mdEl(t.body || '_No description yet._')))
@@ -361,8 +378,9 @@ async function openTicket(id) {
     Object.values(sel).forEach(s => { if (s !== document.activeElement) s.value = t[s.name] || '' })
     pill.textContent = S.board.columns.find(c => c.slug === t.column)?.name ?? t.column
     createdBy.replaceChildren(who(t.created_by), h('div', { class: 'faint' }, 'created ', time(t.created_at), ' · updated ', time(t.updated_at)))
-    const r = project(t.project)?.repo
-    repo.replaceChildren(r ? h('a', { class: 'link', href: r, target: '_blank', rel: 'noopener noreferrer' }, icon('folder-git-2'), shortLink(r)) : '')
+    projects.set(projectsOf(t))
+    repo.replaceChildren(...[...new Set(projectsOf(t).map(n => project(n)?.repo).filter(Boolean))].map(r =>
+      h('a', { class: 'link', href: r, target: '_blank', rel: 'noopener noreferrer' }, icon('folder-git-2'), shortLink(r))))
     if (!editing) showDesc()
     linkList.replaceChildren(...t.links.map((u, i) => h('div', { class: 'link' }, icon(linkIcon(u)), h('a', { href: u, target: '_blank', rel: 'noopener noreferrer', title: u }, shortLink(u)),
       btn('x', 'Remove link', attempt(() => patch({ links: t.links.filter((_, j) => j !== i) })), 'ghost icon sm'))))
@@ -383,7 +401,7 @@ async function openTicket(id) {
       h('div', { class: 'ticket-main' },
         h('div', { class: 'section-head' }, 'Description', btn('pencil', 'Edit description', editDesc, 'ghost icon sm')), desc,
         h('div', { class: 'section-head' }, 'Activity'), timeline, comment.el),
-      h('div', { class: 'side' }, field('Column', sel.column), field('Project', sel.project, repo), field('Assignee', sel.assignee),
+      h('div', { class: 'side' }, field('Column', sel.column), projects.el, field('Assignee', sel.assignee),
         h('div', { class: 'field' }, h('span', {}, 'Links'), linkList, linkAdd), h('div', { class: 'field' }, h('span', {}, 'Created by'), createdBy)))))
   dlg.refresh = async () => { const fresh = await api('GET', '/tickets/' + id); if (openId === id) render(fresh) }
   if (!dlg.open) dlg.showModal()
@@ -393,15 +411,16 @@ function refreshTicket() { if (openId && dlg.refresh) attempt(dlg.refresh)() }
 $('#btn-new').onclick = () => {
   openId = null
   const title = h('input', { class: 'title-input', placeholder: 'Ticket title', 'aria-label': 'Title' })
-  const sel = selects({ column: S.board.columns[0]?.slug, project: S.f.project !== 'none' ? S.f.project : '', assignee: S.f.assignee !== 'none' ? S.f.assignee : '' })
+  const sel = selects({ column: S.board.columns[0]?.slug, assignee: S.f.assignee !== 'none' ? S.f.assignee : '' })
+  const projects = projectPicker(S.f.project && S.f.project !== 'none' ? [S.f.project] : [], () => {})
   const c = composer({ rows: 6, label: 'Create', iconName: 'plus', placeholder: 'Description (markdown, paste or drop files)',
     onSubmit: async body => {
       if (!title.value.trim()) { title.focus(); throw new Error('Title is required') }
-      const t = await api('POST', '/tickets', { title: title.value.trim(), body, column: sel.column.value, project: sel.project.value || null, assignee: sel.assignee.value || null })
+      const t = await api('POST', '/tickets', { title: title.value.trim(), body, column: sel.column.value, projects: projects.get(), assignee: sel.assignee.value || null })
       upsert(t, true); location.hash = t.id
     }, onCancel: () => dlg.close() })
   dlg.replaceChildren(h('div', { class: 'dlg-top' }, h('b', {}, 'New ticket'), h('span', { class: 'grow' }), btn('x', 'Close', () => dlg.close())),
-    h('div', { class: 'dlg-body ticket-main' }, title, h('div', { class: 'row' }, field('Column', sel.column), field('Project', sel.project), field('Assignee', sel.assignee)), c.el))
+    h('div', { class: 'dlg-body ticket-main' }, title, h('div', { class: 'row' }, field('Column', sel.column), projects.el, field('Assignee', sel.assignee)), c.el))
   dlg.showModal(); title.focus()
 }
 

@@ -8,8 +8,9 @@ const HELP = `kb <command>            (env: AGENTBOARD_URL, AGENTBOARD_KEY; full
   project <ls|show|new|set|rename|delete>   manage projects (agents and humans; kb project help)
   ls [--column c] [--project p] [--assignee a|me|none] [--q text] [--limit n] [--offset n]
   show <id>                               ticket + timeline
-  new <title> [--column c] [--project p] [--assignee a] [--link url]... [--body md]   body from stdin if piped
-  set <id> [--title t] [--column c] [--project p] [--assignee a|none] [--link url]... [--body md] [--comment md] [--if-column c]
+  new <title> [--column c] [--project p[,p2]] [--assignee a] [--link url]... [--body md]   body from stdin if piped
+  set <id> [--title t] [--column c] [--project p[,p2]|none] [--assignee a|none] [--link url]... [--body md] [--comment md] [--if-column c]
+                                          --project a,b gives a ticket several projects (the first is its main one)
   mv <id> <column> [comment]              move (and optionally comment)
   comment <id> [markdown]                 markdown from stdin if omitted
   attach <id> <file>... [--comment md]    upload files (images show inline) and post them as one comment
@@ -48,6 +49,8 @@ for (let i = 0; i < rest.length; i++) {
 function die(msg) { console.error(msg); process.exit(1) }
 const stdin = () => process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8')
 const none = v => v === 'none' ? null : v
+// --project a,b → {projects: [a, b]}; one name stays {project}, which older servers understand too
+const projects = v => { const a = v.split(',').map(s => s.trim()).filter(Boolean); return a.length > 1 ? { projects: a } : { project: none(a[0] ?? null) } }
 
 async function call(method, p, body, type = 'application/json') {
   const res = await fetch(URL_ + p, { method, body: type === 'application/json' && body ? JSON.stringify(body) : body,
@@ -78,8 +81,8 @@ const commands = {
   },
   ls: () => call('GET', '/api/tickets' + qs(opt)),
   show: () => call('GET', '/api/tickets/' + pos[0]),
-  new: () => call('POST', '/api/tickets', { title: pos.join(' '), body: opt.body ?? stdin(), column: opt.column, project: opt.project, assignee: opt.assignee, links: opt.links }),
-  set: () => call('PATCH', '/api/tickets/' + pos[0], { ...opt, ...('assignee' in opt && { assignee: none(opt.assignee) }), ...('project' in opt && { project: none(opt.project) }) }),
+  new: () => call('POST', '/api/tickets', { title: pos.join(' '), body: opt.body ?? stdin(), column: opt.column, ...('project' in opt && projects(opt.project)), assignee: opt.assignee, links: opt.links }),
+  set: () => { const { project, ...o } = opt; return call('PATCH', '/api/tickets/' + pos[0], { ...o, ...('assignee' in o && { assignee: none(o.assignee) }), ...(project !== undefined && projects(project)) }) },
   mv: () => call('PATCH', '/api/tickets/' + pos[0], { column: pos[1], comment: pos.slice(2).join(' ') || undefined }),
   comment: () => call('POST', `/api/tickets/${pos[0]}/comments`, { body: pos.slice(1).join(' ') || stdin() }),
   attach: async () => {

@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentboard-'))
 const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: '0', DATA_DIR: dir } })
@@ -135,7 +136,7 @@ test('projects: agents and humans share CRUD without changing ticket data', asyn
     const updated = { name: renamed, color: '#123456', repo: 'http://example.com/repo' }
     assert.deepEqual((await req('PATCH', projectPath(name), { auth, body: updated })).data, updated)
     assert.deepEqual((await req('GET', projectPath(renamed), { auth })).data, updated)
-    assert.deepEqual(await snapshot(ticket.data.id), { ...before, project: renamed })
+    assert.deepEqual(await snapshot(ticket.data.id), { ...before, project: renamed, projects: [renamed] })
     assert.equal((await req('GET', '/api/tickets?project=' + encodeURIComponent(renamed), { auth })).data[0].id, ticket.data.id)
     assert.equal((await req('GET', '/api/board?project=' + encodeURIComponent(renamed), { auth })).data.columns.find(c => c.slug === 'in-review').count, 1)
     assert.equal((await req('GET', projectPath(name), { auth })).status, 404)
@@ -143,7 +144,7 @@ test('projects: agents and humans share CRUD without changing ticket data', asyn
       assert.equal((await req('PATCH', projectPath(renamed), { auth, body: { repo } })).data.repo, null)
     }
     assert.deepEqual(await req('DELETE', projectPath(renamed), { auth }).then(r => [r.status, r.data]), [200, { ok: true }])
-    assert.deepEqual(await snapshot(ticket.data.id), { ...before, project: null })
+    assert.deepEqual(await snapshot(ticket.data.id), { ...before, project: null, projects: [] })
     assert.equal((await req('GET', projectPath(renamed), { auth })).status, 404)
   }
 })
@@ -269,6 +270,64 @@ test('project writes emit metadata events', async () => {
       assert.deepEqual(await nextMessage(), { type: 'meta' })
     }
   } finally { ac.abort() }
+})
+
+test('a ticket can carry several projects', async () => {
+  const auth = key, names = ['Multi A', 'Multi B', 'Multi C']
+  for (const name of names) assert.equal((await req('POST', '/api/projects', { auth, body: { name } })).status, 201)
+  const list = async (query) => (await req('GET', '/api/tickets?' + query, { auth })).data.map(t => t.id)
+  let t = (await req('POST', '/api/tickets', { auth, body: { title: 'Two projects', projects: ['multi b', 'Multi A', 'MULTI B'], column: 'in-review' } })).data
+  assert.deepEqual([t.project, t.projects], ['Multi B', ['Multi B', 'Multi A']]) // names resolve case-insensitively, duplicates drop, order stays
+  assert.ok((await list('project=Multi%20A')).includes(t.id)); assert.ok((await list('project=Multi%20B')).includes(t.id))
+  assert.ok(!(await list('project=Multi%20C')).includes(t.id)); assert.ok(!(await list('project=none&limit=500')).includes(t.id))
+  assert.equal((await req('GET', '/api/board?project=Multi%20A', { auth })).data.columns.find(c => c.slug === 'in-review').count, 1)
+  const patch = async body => (await req('PATCH', '/api/tickets/' + t.id, { auth, body })).data
+  assert.deepEqual((await patch({ projects: ['Multi C', 'Multi A'] })).projects, ['Multi C', 'Multi A'])
+  assert.deepEqual((await patch({ project: 'Multi B' })).projects, ['Multi B']) // the single field replaces the whole list
+  assert.deepEqual((await patch({ projects: ['Multi A', 'Multi B'] })).projects, ['Multi A', 'Multi B'])
+  const events = (await req('GET', '/api/tickets/' + t.id, { auth })).data.events
+  assert.deepEqual(events.filter(e => e.type === 'edited').map(e => e.body), ['project', 'project', 'project'])
+  assert.equal((await req('PATCH', '/api/tickets/' + t.id, { auth, body: { projects: ['Multi A', 'ghost'] } })).status, 400)
+  assert.equal((await req('PATCH', '/api/tickets/' + t.id, { auth, body: { projects: 'Multi A' } })).status, 400)
+  assert.deepEqual((await req('GET', '/api/tickets/' + t.id, { auth })).data.projects, ['Multi A', 'Multi B']) // a refused write changes nothing
+  // Deleting a project drops only that one; the next becomes the main project.
+  assert.equal((await req('DELETE', '/api/projects/Multi%20A', { auth })).status, 200)
+  t = (await req('GET', '/api/tickets/' + t.id, { auth })).data
+  assert.deepEqual([t.project, t.projects], ['Multi B', ['Multi B']])
+  assert.deepEqual((await patch({ projects: null })).projects, [])
+  assert.ok((await list('project=none&limit=500')).includes(t.id))
+  // CLI: a comma-separated --project sets several; none clears them.
+  const kb = (...args) => JSON.parse(execFileSync(process.execPath, ['bin/kb.mjs', ...args], { env: { ...process.env, AGENTBOARD_URL: base, AGENTBOARD_KEY: key }, input: '' }))
+  const made = kb('new', 'CLI', 'projects', '--project', 'Multi C, Multi B')
+  assert.deepEqual(made.projects, ['Multi C', 'Multi B'])
+  assert.deepEqual(kb('set', String(made.id), '--project', 'Multi B').projects, ['Multi B'])
+  assert.deepEqual(kb('set', String(made.id), '--project', 'none').projects, [])
+})
+
+test('migration: an existing board keeps every ticket\'s project', async () => {
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), 'agentboard-old-'))
+  try {
+    // The schema before ticket_projects existed, with one ticket in a project and one without.
+    const db = new DatabaseSync(path.join(old, 'board.db'))
+    db.exec(`CREATE TABLE users(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL UNIQUE COLLATE NOCASE, email TEXT UNIQUE COLLATE NOCASE, pass TEXT, key_hash TEXT UNIQUE, created_at INTEGER NOT NULL);
+      CREATE TABLE columns(id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, position REAL NOT NULL);
+      CREATE TABLE projects(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, color TEXT NOT NULL, repo TEXT);
+      CREATE TABLE tickets(id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', column_id INTEGER NOT NULL REFERENCES columns,
+        project_id INTEGER REFERENCES projects ON DELETE SET NULL, assignee_id INTEGER REFERENCES users ON DELETE SET NULL, links TEXT NOT NULL DEFAULT '[]',
+        position REAL NOT NULL, created_by INTEGER REFERENCES users ON DELETE SET NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO columns VALUES (1, 'To Do', 'to-do', 0); INSERT INTO projects VALUES (1, 'veydrift', '#6e7cff', NULL);
+      INSERT INTO tickets(id, title, column_id, project_id, position, created_at, updated_at) VALUES (5, 'old', 1, 1, 0, 1, 1), (6, 'loose', 1, NULL, 0, 1, 1);`)
+    db.close()
+    for (let run = 0; run < 2; run++) { // a second start must not change anything
+      const s = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: '0', DATA_DIR: old } })
+      await new Promise((resolve, reject) => { s.stdout.on('data', d => /agentboard on/.test(d) && resolve()); s.on('exit', reject) })
+      s.kill(); await new Promise(r => s.on('exit', r))
+    }
+    const after = new DatabaseSync(path.join(old, 'board.db'))
+    assert.deepEqual(after.prepare('SELECT ticket_id, project_id, pos FROM ticket_projects').all().map(r => ({ ...r })), [{ ticket_id: 5, project_id: 1, pos: 0 }])
+    assert.equal(after.prepare('PRAGMA user_version').get().user_version, 1)
+    after.close()
+  } finally { fs.rmSync(old, { recursive: true, force: true }) }
 })
 
 test('security', async () => {

@@ -166,3 +166,18 @@ test('successful login and logout still navigate when storage fails without rand
   assert.equal(a.document.querySelector('#toasts').textContent, '')
   assert.equal(a.writes.length, 0)
 })
+
+test('filters and flairs cover every project on a ticket, and older single-project payloads', () => {
+  const a = app()
+  a.S.board = { projects: [{ name: 'Radiant', color: '#112233' }, { name: 'Todorant', color: '#445566' }], users: [] }
+  const both = { ...ticket, project: 'Radiant', projects: ['Radiant', 'Todorant'] }
+  for (const [project, want] of [['', true], ['todorant', true], ['RADIANT', true], ['other', false], ['none', false]]) {
+    a.S.f = { q: '', project, assignee: '' }
+    assert.equal(a.matches(both), want, project)
+  }
+  a.S.f = { q: '', project: 'radiant', assignee: '' }
+  assert.equal(a.matches({ ...ticket, project: 'Radiant' }), true) // no `projects` field
+  a.S.f = { q: '', project: 'none', assignee: '' }
+  assert.equal(a.matches({ ...ticket, projects: [] }), true)
+  assert.match(a.card(both).textContent, /RadiantTodorant/)
+})

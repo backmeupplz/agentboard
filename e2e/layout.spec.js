@@ -9,15 +9,15 @@ const title = 'Keep long ticket titles readable while multiple columns remain vi
 const columns = ['To Do', 'In Progress', 'In Review', 'Done'].map((name, i) => ({ name, slug: ['to-do', 'in-progress', 'in-review', 'done'][i], count: i === 1 ? 1 : 0 }))
 
 async function board(page) {
-  let ticket = { id: 42, title, column: 'in-progress', project, assignee: user, assignee_id: 7, position: 0, updated_at: new Date().toISOString() }
+  let ticket = { id: 42, title, column: 'in-progress', project, projects: [project, 'Radiant'], assignee: user, assignee_id: 7, position: 0, updated_at: new Date().toISOString() }
   await page.route('http://board.test/**', async route => {
     const url = new URL(route.request().url()), path = url.pathname
     if (path === '/api/me') return route.fulfill({ json: { id: 7, name: user } })
-    if (path === '/api/board') return route.fulfill({ json: { columns, projects: [{ name: project, color: '#7c8cff' }], users: [{ id: 7, name: user, kind: 'agent' }] } })
+    if (path === '/api/board') return route.fulfill({ json: { columns, projects: [{ name: project, color: '#7c8cff' }, { name: 'Radiant', color: '#e0a030' }], users: [{ id: 7, name: user, kind: 'agent' }] } })
     if (path === '/api/tickets') return route.fulfill({ json: url.searchParams.get('column') === ticket.column ? [ticket] : [] })
-    if (path === '/api/tickets/42' && route.request().method() === 'PATCH') {
-      ticket = { ...ticket, ...route.request().postDataJSON() }
-      return route.fulfill({ json: ticket })
+    if (path === '/api/tickets/42') {
+      if (route.request().method() === 'PATCH') ticket = { ...ticket, ...route.request().postDataJSON() }
+      return route.fulfill({ json: { body: '', links: [], events: [], created_by: user, created_at: ticket.updated_at, ...ticket } })
     }
     // The fixture stream ends at once; a long retry stops EventSource from reconnecting and re-rendering the board mid-test.
     if (path === '/api/stream') return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 3600000\n: fixture\n\n' })
@@ -89,3 +89,19 @@ test('theme toggle changes the page on the first click and cycles back to the OS
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect.poll(async () => (await theme())[0]).toBe('dark')
 })
+
+for (const width of [320, 1024]) {
+  test('the ticket dialog shows every project without overflow at ' + width + 'px', async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await board(page)
+    await page.locator('.card').click()
+    const picker = page.locator('#ticket .projects')
+    await expect(picker.locator('.flair')).toHaveText([project, 'Radiant'])
+    const fits = await page.evaluate(() => { const p = document.querySelector('#ticket .projects'); return { picker: p.scrollWidth <= p.clientWidth, page: document.documentElement.scrollWidth } })
+    expect(fits).toEqual({ picker: true, page: width })
+    await picker.getByRole('button', { name: 'Remove Radiant' }).click()
+    await expect(picker.locator('.flair')).toHaveText([project])
+    await picker.getByRole('combobox', { name: 'Add a project' }).selectOption('Radiant')
+    await expect(picker.locator('.flair')).toHaveText([project, 'Radiant'])
+  })
+}

@@ -2,7 +2,7 @@
 
 A tiny real-time kanban board for AI agents and the humans watching them.
 
-- **One board.** Columns are customizable. Projects are colored flairs on tickets, each with an optional repo (git.borodutch.com, the Forgejo home of these repos, or any other forge URL).
+- **One board.** Columns are customizable. Projects are colored flairs on tickets (a ticket can carry several, such as `radiant` and `todorant`), each with an optional repo (git.borodutch.com, the Forgejo home of these repos, or any other forge URL).
 - **Agents are users.** Each agent has an API key, and the API addresses everything by name (`"column": "in-review"`, `"assignee": "me"`).
 - **Humans sign in** with email and password to watch the board. Every change streams in live over SSE, and there's an activity feed.
 - **Markdown** in descriptions and comments, with any number of attachments per comment (paste, drop or pick files). Images appear inline and other files as download chips. Everything is stored on local disk.
@@ -72,6 +72,7 @@ The CLI needs no install beyond Node:
 ```sh
 export AGENTBOARD_URL=http://127.0.0.1:3000 AGENTBOARD_KEY=ab_...
 bin/kb.mjs ls --column to-do --project veydrift
+bin/kb.mjs set 42 --project radiant,todorant   # several projects; the first is the main one
 bin/kb.mjs set 42 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
 bin/kb.mjs attach 42 before.png after.png run.log --comment "Before/after"
 bin/kb.mjs project ls
@@ -79,7 +80,7 @@ bin/kb.mjs project new "abs+" --color "#6e7cff" --repo https://git.borodutch.com
 bin/kb.mjs project show "abs+"
 bin/kb.mjs project set "abs+" --repo none
 bin/kb.mjs project rename "abs+" "My Project/repo"
-bin/kb.mjs project delete "My Project/repo"  # keeps tickets, clearing only their project
+bin/kb.mjs project delete "My Project/repo"  # keeps tickets, dropping only this project from them
 bin/kb.mjs project help
 bin/kb.mjs watch            # live JSON stream of every change
 ```

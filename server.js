@@ -34,12 +34,19 @@ CREATE TABLE IF NOT EXISTS tickets(id INTEGER PRIMARY KEY, title TEXT NOT NULL, 
   created_by INTEGER REFERENCES users ON DELETE SET NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS tickets_column ON tickets(column_id, position);
 CREATE INDEX IF NOT EXISTS tickets_updated ON tickets(updated_at);
+CREATE TABLE IF NOT EXISTS ticket_projects(ticket_id INTEGER NOT NULL REFERENCES tickets ON DELETE CASCADE,
+  project_id INTEGER NOT NULL REFERENCES projects ON DELETE CASCADE, pos INTEGER NOT NULL, PRIMARY KEY(ticket_id, project_id));
+CREATE INDEX IF NOT EXISTS ticket_projects_project ON ticket_projects(project_id);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ticket_id INTEGER REFERENCES tickets ON DELETE CASCADE,
   user_id INTEGER REFERENCES users ON DELETE SET NULL, type TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS events_ticket ON events(ticket_id, id);
 CREATE TABLE IF NOT EXISTS files(name TEXT PRIMARY KEY, original TEXT NOT NULL, size INTEGER NOT NULL,
   user_id INTEGER REFERENCES users ON DELETE SET NULL, created_at INTEGER NOT NULL);
 `)
+// v1: a ticket can carry several projects (ticket_projects, in order). tickets.project_id keeps the first one,
+// so an older build still shows the main project after a rollback.
+if (db.prepare('PRAGMA user_version').get().user_version < 1)
+  db.exec('BEGIN; INSERT OR IGNORE INTO ticket_projects SELECT id, project_id, 0 FROM tickets WHERE project_id IS NOT NULL; PRAGMA user_version=1; COMMIT')
 const stmts = new Map()
 const q = sql => stmts.get(sql) ?? stmts.set(sql, db.prepare(sql)).get(sql)
 const tx = fn => { db.exec('BEGIN'); try { const r = fn(); db.exec('COMMIT'); return r } catch (e) { db.exec('ROLLBACK'); throw e } }
@@ -66,6 +73,17 @@ const text = (v, name, max, required) => {
 const columnId = v => { const r = q('SELECT id FROM columns WHERE slug=?').get(slugify(v)); need(r, 400, `unknown column "${v}" (GET /api/board lists them)`); return r.id }
 const projectId = v => { if (!v) return null; const r = q('SELECT id FROM projects WHERE name=?').get(String(v)); need(r, 400, `unknown project "${v}"`); return r.id }
 const getProject = name => { const r = q('SELECT * FROM projects WHERE name=?').get(name); need(r, 404, `project "${name}" not found`); return r }
+// `projects` (a list of names) wins over `project` (one name, or null for none). Undefined when the body has neither.
+function projectIds(b) {
+  const v = b.projects !== undefined ? b.projects : b.project !== undefined ? (b.project ? [b.project] : []) : undefined
+  if (v === undefined) return
+  need(v === null || (Array.isArray(v) && v.length <= 20), 400, 'projects must be a list of at most 20 project names')
+  return [...new Set((v ?? []).map(projectId).filter(Boolean))]
+}
+const setProjects = (ticketId, ids) => {
+  q('DELETE FROM ticket_projects WHERE ticket_id=?').run(ticketId)
+  ids.forEach((id, i) => q('INSERT INTO ticket_projects(ticket_id,project_id,pos) VALUES (?,?,?)').run(ticketId, id, i))
+}
 const projectOut = ({ name, color, repo }) => ({ name, color, repo })
 function projectFields(b, cur = { color: '#6e7cff', repo: null }) {
   const name = text(b.name === undefined ? cur.name : b.name, 'name', 64, true)
@@ -86,11 +104,17 @@ const links = v => {
   return JSON.stringify(a)
 }
 
-const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", p.name AS project, a.name AS assignee, t.assignee_id,
-  t.links, t.position, cb.name AS created_by, t.created_at, t.updated_at
-  FROM tickets t JOIN columns c ON c.id=t.column_id LEFT JOIN projects p ON p.id=t.project_id
+// `project` is the first of `projects`; the NULL placeholder only keeps its place in the JSON.
+const TICKET_SQL = full => `SELECT t.id, t.title, ${full ? 't.body,' : ''} c.slug AS "column", NULL AS project,
+  (SELECT json_group_array(p.name ORDER BY tp.pos) FROM ticket_projects tp JOIN projects p ON p.id=tp.project_id WHERE tp.ticket_id=t.id) AS projects,
+  a.name AS assignee, t.assignee_id, t.links, t.position, cb.name AS created_by, t.created_at, t.updated_at
+  FROM tickets t JOIN columns c ON c.id=t.column_id
   LEFT JOIN users a ON a.id=t.assignee_id LEFT JOIN users cb ON cb.id=t.created_by`
-const ticketOut = r => r && { ...r, links: JSON.parse(r.links), created_at: iso(r.created_at), updated_at: iso(r.updated_at) }
+const ticketOut = r => {
+  if (!r) return r
+  const projects = JSON.parse(r.projects)
+  return { ...r, project: projects[0] ?? null, projects, links: JSON.parse(r.links), created_at: iso(r.created_at), updated_at: iso(r.updated_at) }
+}
 const getTicket = (id, full = true) => ticketOut(q(TICKET_SQL(full) + ' WHERE t.id=?').get(id))
 const EVENT_SQL = `SELECT e.id, e.ticket_id, t.title AS ticket_title, u.name AS user, u.kind AS user_kind, e.type, e.body, e.created_at
   FROM events e LEFT JOIN users u ON u.id=e.user_id LEFT JOIN tickets t ON t.id=e.ticket_id`
@@ -109,7 +133,8 @@ setInterval(() => { for (const res of streams.keys()) res.write(': ping\n\n') },
 
 function filters(query, me) {
   const where = [], args = []
-  if (query.project) query.project === 'none' ? where.push('t.project_id IS NULL') : (where.push('t.project_id=?'), args.push(projectId(query.project)))
+  if (query.project) query.project === 'none' ? where.push('NOT EXISTS (SELECT 1 FROM ticket_projects tp WHERE tp.ticket_id=t.id)')
+    : (where.push('EXISTS (SELECT 1 FROM ticket_projects tp WHERE tp.ticket_id=t.id AND tp.project_id=?)'), args.push(projectId(query.project)))
   if (query.assignee) query.assignee === 'none' ? where.push('t.assignee_id IS NULL') : (where.push('t.assignee_id=?'), args.push(userId(query.assignee, me)))
   if (query.q) {
     const m = /^#?(\d+)$/.exec(query.q.trim())
@@ -142,10 +167,12 @@ function board(query, me) {
 function createTicket(b, me) {
   const title = text(b.title, 'title', 500, true), body = text(b.body, 'body', 200000) ?? ''
   const col = b.column ? columnId(b.column) : q('SELECT id FROM columns ORDER BY position LIMIT 1').get().id
-  const row = [title, body, col, projectId(b.project), userId(b.assignee, me), links(b.links) ?? '[]', -Date.now(), me.id, Date.now(), Date.now()]
+  const pids = projectIds(b) ?? []
+  const row = [title, body, col, pids[0] ?? null, userId(b.assignee, me), links(b.links) ?? '[]', -Date.now(), me.id, Date.now(), Date.now()]
   const [id, ev] = tx(() => {
     const id = Number(q(`INSERT INTO tickets(title,body,column_id,project_id,assignee_id,links,position,created_by,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?)`).run(...row).lastInsertRowid)
+    setProjects(id, pids)
     return [id, addEvent(id, me, 'created')]
   })
   emitTicket(id, [ev])
@@ -162,7 +189,9 @@ function updateTicket(id, b, me) {
   if (title && title !== cur.title) set.title = title, edited.push('title')
   if (body !== undefined && body !== cur.body) set.body = body, edited.push('description')
   if (l !== undefined && l !== cur.links) set.links = l, edited.push('links')
-  if (b.project !== undefined && projectId(b.project) !== cur.project_id) set.project_id = projectId(b.project), edited.push('project')
+  const pids = projectIds(b), curPids = q('SELECT project_id FROM ticket_projects WHERE ticket_id=? ORDER BY pos').all(id).map(r => r.project_id)
+  const newPids = pids && pids.join() !== curPids.join() ? pids : null
+  if (newPids) set.project_id = newPids[0] ?? null, edited.push('project')
   if (b.column !== undefined && columnId(b.column) !== cur.column_id) {
     set.column_id = columnId(b.column)
     events.push(['moved', `${curCol.name} → ${q('SELECT name FROM columns WHERE id=?').get(set.column_id).name}`])
@@ -180,6 +209,7 @@ function updateTicket(id, b, me) {
   if (events.length) set.updated_at = Date.now()
   const ids = tx(() => {
     if (Object.keys(set).length) q(`UPDATE tickets SET ${Object.keys(set).map(k => k + '=?').join(',')} WHERE id=?`).run(...Object.values(set), id)
+    if (newPids) setProjects(id, newPids)
     return events.map(([type, body]) => addEvent(id, me, type, body))
   })
   emitTicket(id, ids)
