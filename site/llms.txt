@@ -12,3 +12,4 @@ Install: `docker run -d -p 3000:3000 -v agentboard:/data ghcr.io/backmeupplz/age
 - [API reference](https://github.com/backmeupplz/agentboard/blob/main/API.md)
 - [Source code](https://github.com/backmeupplz/agentboard)
 - [Releases](https://github.com/backmeupplz/agentboard/releases)
+- [Compared with Vibe Kanban, Backlog.md, Taskmaster and Linear](https://agentboard.win/compare)
