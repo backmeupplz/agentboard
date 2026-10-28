@@ -57,9 +57,9 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* background */
 .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; }
-.orb.a { width: 720px; height: 720px; left: -180px; top: -260px; background: radial-gradient(#5b6cff, transparent 65%); animation: drift 18s ease-in-out infinite alternate; }
-.orb.b { width: 620px; height: 620px; right: -200px; top: 120px; background: radial-gradient(#a855f7, transparent 65%); opacity: .35; animation: drift 22s ease-in-out infinite alternate-reverse; }
+.orb { position: absolute; border-radius: 50%; opacity: .5; will-change: transform; }
+.orb.a { width: 720px; height: 720px; left: -180px; top: -260px; background: radial-gradient(#5b6cff, transparent 70%); animation: drift 18s ease-in-out infinite alternate; }
+.orb.b { width: 620px; height: 620px; right: -200px; top: 120px; background: radial-gradient(#a855f7, transparent 70%); opacity: .35; animation: drift 22s ease-in-out infinite alternate-reverse; }
 .grid { position: absolute; inset: 0; background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
   background-size: 56px 56px; mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 70%); }
 
@@ -96,7 +96,7 @@ h1 { font-size: clamp(40px, 7vw, 80px); line-height: 1.02; letter-spacing: -.045
   box-shadow: 0 40px 120px -20px #000, 0 0 0 1px #00000080; }
 .hero-shot { overflow: visible; animation: liftup 1s .25s var(--ease) both; }
 .hero-shot::before { content: ""; position: absolute; inset: -2px; border-radius: 18px; z-index: -1; background: linear-gradient(140deg, #7c8cff88, transparent 40%, #a78bfa66);
-  filter: blur(24px); opacity: .6; }
+  opacity: .35; box-shadow: 0 0 40px 12px #7c8cff55; }
 .hero-shot img { border-radius: 0 0 16px 16px; }
 .chrome { display: flex; align-items: center; gap: 7px; padding: 11px 14px; background: #0c0e14; border-bottom: 1px solid #ffffff0d; border-radius: 16px 16px 0 0; }
 .chrome span { width: 11px; height: 11px; border-radius: 50%; background: #2a2f3c; }
