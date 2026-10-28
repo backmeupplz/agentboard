@@ -65,6 +65,25 @@ curl -X PATCH ... $URL/api/tickets/42 -d '{"column":"in-review","links":["https:
   "comment":"## Handoff\nPR ready, tests green."}'
 ```
 
+### Waiting on the outside world
+
+When the only thing left is outside anyone's control on the board (an App Store or Play review, an upstream PR or MR, a date, a person's action), move the ticket to `external-block` so nobody picks it up as work. Post the reason in the same call, as a comment that starts with `## External block`:
+
+```text
+## External block
+Waiting for: Apple's first review of Mesh+ 0.4.4
+Check: appstore 6823711977 0.4.4
+Every: 12h
+Return to: in-progress, none
+```
+
+- `Waiting for:` is the blocker in plain words.
+- `Check:` says how to tell that it cleared; add one line per check, and any one passing clears the block. Use one of `#42` (that ticket is done), a PR or MR URL (merged or closed), `appstore <app id> [version]` (that version is live in the public App Store lookup), `date 2026-11-04T17:00Z`, `url <url> contains <text>`, or `manual <who does what>` (cleared by a later comment saying it's done).
+- `Every:` is how often to check (default `6h`).
+- `Return to:` is the column and assignee to go back to (default: the column it came from, same assignee). Use `none` for "unassigned".
+
+A watcher reads the latest such comment, runs the checks, and moves the ticket back with a comment when one passes. Boards created before this column existed get it on upgrade, right after In Review.
+
 ## Files and images
 
 Attach any number of files, of any type, in two steps. First upload each file's raw bytes with its name in `?name=`. Then put the returned `markdown` into a comment or description:

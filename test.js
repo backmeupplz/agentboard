@@ -304,7 +304,7 @@ test('a ticket can carry several projects', async () => {
   assert.deepEqual(kb('set', String(made.id), '--project', 'none').projects, [])
 })
 
-test('migration: an existing board keeps every ticket\'s project', async () => {
+test('migration: an existing board keeps every ticket\'s project and gets External block', async () => {
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'agentboard-old-'))
   try {
     // The schema before ticket_projects existed, with one ticket in a project and one without.
@@ -315,7 +315,7 @@ test('migration: an existing board keeps every ticket\'s project', async () => {
       CREATE TABLE tickets(id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', column_id INTEGER NOT NULL REFERENCES columns,
         project_id INTEGER REFERENCES projects ON DELETE SET NULL, assignee_id INTEGER REFERENCES users ON DELETE SET NULL, links TEXT NOT NULL DEFAULT '[]',
         position REAL NOT NULL, created_by INTEGER REFERENCES users ON DELETE SET NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-      INSERT INTO columns VALUES (1, 'To Do', 'to-do', 0); INSERT INTO projects VALUES (1, 'veydrift', '#6e7cff', NULL);
+      INSERT INTO columns VALUES (1, 'To Do', 'to-do', 0), (2, 'In Review', 'in-review', 1), (3, 'Done', 'done', 2); INSERT INTO projects VALUES (1, 'veydrift', '#6e7cff', NULL);
       INSERT INTO tickets(id, title, column_id, project_id, position, created_at, updated_at) VALUES (5, 'old', 1, 1, 0, 1, 1), (6, 'loose', 1, NULL, 0, 1, 1);`)
     db.close()
     for (let run = 0; run < 2; run++) { // a second start must not change anything
@@ -325,7 +325,8 @@ test('migration: an existing board keeps every ticket\'s project', async () => {
     }
     const after = new DatabaseSync(path.join(old, 'board.db'))
     assert.deepEqual(after.prepare('SELECT ticket_id, project_id, pos FROM ticket_projects').all().map(r => ({ ...r })), [{ ticket_id: 5, project_id: 1, pos: 0 }])
-    assert.equal(after.prepare('PRAGMA user_version').get().user_version, 1)
+    assert.equal(after.prepare('PRAGMA user_version').get().user_version, 2)
+    assert.deepEqual(after.prepare('SELECT slug FROM columns ORDER BY position').all().map(r => r.slug), ['to-do', 'in-review', 'external-block', 'done'])
     after.close()
   } finally { fs.rmSync(old, { recursive: true, force: true }) }
 })

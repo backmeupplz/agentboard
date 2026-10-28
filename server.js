@@ -52,7 +52,13 @@ const q = sql => stmts.get(sql) ?? stmts.set(sql, db.prepare(sql)).get(sql)
 const tx = fn => { db.exec('BEGIN'); try { const r = fn(); db.exec('COMMIT'); return r } catch (e) { db.exec('ROLLBACK'); throw e } }
 const slugify = s => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 if (!q('SELECT 1 FROM columns').get())
-  ['To Do', 'In Progress', 'In Review', 'Done'].forEach((n, i) => q('INSERT INTO columns(name,slug,position) VALUES (?,?,?)').run(n, slugify(n), i))
+  ['To Do', 'In Progress', 'In Review', 'External block', 'Done'].forEach((n, i) => q('INSERT INTO columns(name,slug,position) VALUES (?,?,?)').run(n, slugify(n), i))
+// v2: an "External block" column for tickets waiting on the outside world (store review, upstream PR, a person),
+// right after In Review (or last). Added once: a human may delete or rename it afterwards.
+if (db.prepare('PRAGMA user_version').get().user_version < 2)
+  db.exec(`BEGIN; INSERT OR IGNORE INTO columns(name,slug,position) VALUES ('External block', 'external-block',
+    coalesce((SELECT position FROM columns WHERE slug='in-review') + 0.5, (SELECT coalesce(max(position), -1) + 1 FROM columns)));
+    PRAGMA user_version=2; COMMIT`)
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status } }
 const need = (ok, status, msg) => { if (!ok) throw new HttpError(status, msg) }
