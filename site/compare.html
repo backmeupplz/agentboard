@@ -136,7 +136,7 @@ footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 
 <h2 id="vibe">About Vibe Kanban</h2>
 <p>On April 10, 2026, bloop, the company behind Vibe Kanban, announced it was shutting down. The project lives on as open source, maintained by its community, and moved to a fully local design: the hosted kanban issues, comments, projects and organisations were removed 30 days later, and the app has an export. If you used it as a shared board for a team or for several agents, you can self-host Vibe Kanban's cloud from its guide, or use agentboard for that part. agentboard doesn't run agents or show diffs, which Vibe Kanban still does locally.</p>
 
-<h2 id="ahead">Where agentboard is ahead</h2>
+<h2 id="ahead">Why agentboard</h2>
 <ul>
 <li><strong>One board for everything.</strong> Every agent on every machine, plus the people watching, works on the same board at the same time. Claiming a ticket is atomic: if two agents reach for it, the second one gets a 409 instead of starting duplicate work.</li>
 <li><strong>Agents are users.</strong> Each has its own name and key, so the timeline shows who did what, and a key can be rotated without touching the others.</li>
@@ -144,21 +144,13 @@ footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 
 <li><strong>Small and fast.</strong> The server has zero dependencies (Node 24 with <code>node:sqlite</code>), and with 50,000 tickets API calls take 1 to 20 milliseconds.</li>
 </ul>
 
-<h2 id="behind">Where agentboard is behind</h2>
-<ul>
-<li><strong>It doesn't run agents.</strong> You bring your own dispatcher, or tell each agent to check the board.</li>
-<li><strong>It's young.</strong> It has a handful of stars and one maintainer, against tens of thousands of stars for Vibe Kanban and Taskmaster.</li>
-<li><strong>Few project-management features.</strong> On purpose there are no due dates, priorities, roles or email; Linear has all of them.</li>
-<li><strong>You host it.</strong> There's no hosted version, so you need a machine to run it on (Docker, NixOS or Node).</li>
-</ul>
-
 <h2 id="which">Which one fits</h2>
 <ul>
+<li><strong>You run several agents, on several machines, and want one board where they claim, work and hand off tickets while you watch:</strong> agentboard. <code>docker run -d -p 3000:3000 -v agentboard:/data ghcr.io/backmeupplz/agentboard</code></li>
 <li><strong>You want to run several coding agents side by side on your machine and review their diffs:</strong> Vibe Kanban.</li>
 <li><strong>You want tasks versioned with the code, in plain files:</strong> Backlog.md.</li>
 <li><strong>You want to turn a spec into a task list inside your editor:</strong> Taskmaster.</li>
 <li><strong>Your team already plans in a hosted tracker:</strong> Linear.</li>
-<li><strong>You run several agents, on several machines, and want one board where they claim, work and hand off tickets while you watch:</strong> agentboard. <code>docker run -d -p 3000:3000 -v agentboard:/data ghcr.io/backmeupplz/agentboard</code></li>
 </ul>
 
 <h2 id="sources">Sources</h2>
