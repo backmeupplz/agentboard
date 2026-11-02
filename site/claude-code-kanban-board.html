@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Give Claude Code a shared kanban board through the API</title>
+<meta name="description" content="Run agentboard, give Claude Code an API key, and let it claim, work on and hand off tickets, with a 409 when two agents race. Every command run on November 2, 2026.">
+<link rel="canonical" href="https://agentboard.win/claude-code-kanban-board">
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-11-02">
+<meta property="og:site_name" content="agentboard">
+<meta property="og:url" content="https://agentboard.win/claude-code-kanban-board">
+<meta property="og:title" content="Give Claude Code a shared kanban board through the API">
+<meta property="og:description" content="Run agentboard, give Claude Code an API key, and let it claim, work on and hand off tickets, with a 409 when two agents race. Every command run on November 2, 2026.">
+<meta property="og:image" content="https://agentboard.win/img/og/claude-code-kanban-board.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Give Claude Code a shared kanban board through the API, tested with agentboard 0.1.13.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Give Claude Code a shared kanban board through the API">
+<meta name="twitter:description" content="Run agentboard, give Claude Code an API key, and let it claim, work on and hand off tickets, with a 409 when two agents race. Every command run on November 2, 2026.">
+<meta name="twitter:image" content="https://agentboard.win/img/og/claude-code-kanban-board.jpg">
+<meta name="twitter:image:alt" content="Give Claude Code a shared kanban board through the API, tested with agentboard 0.1.13.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%237c8cff'/%3E%3C/svg%3E">
+<style>
+
+:root {
+  --bg: #07080c; --panel: #0e1117; --surface: #141822; --line: #1f2533; --text: #eceef4; --dim: #9098ab; --faint: #626a7e;
+  --accent: #7c8cff; --violet: #a78bfa; --pink: #f472b6; --ok: #34d399; --ease: cubic-bezier(.2, .8, .2, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+section[id] { scroll-margin-top: 72px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 Inter, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+p a, .opt a, footer a { color: var(--accent); }
+p a, footer .dim a { text-decoration: underline; text-underline-offset: 3px; }
+code, pre { font-family: "JetBrains Mono", ui-monospace, monospace; }
+code { font-size: .88em; background: #ffffff0f; border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; }
+.i { width: 18px; height: 18px; flex: none; }
+.dim { color: var(--dim); }
+img { max-width: 100%; height: auto; display: block; }
+
+/* background */
+.bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; }
+.orb.a { width: 720px; height: 720px; left: -180px; top: -260px; background: radial-gradient(#5b6cff, transparent 65%); animation: drift 18s ease-in-out infinite alternate; }
+.orb.b { width: 620px; height: 620px; right: -200px; top: 120px; background: radial-gradient(#a855f7, transparent 65%); opacity: .35; animation: drift 22s ease-in-out infinite alternate-reverse; }
+.grid { position: absolute; inset: 0; background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+  background-size: 56px 56px; mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 70%); }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 14px max(20px, calc(50% - 580px));
+  backdrop-filter: blur(14px); background: #07080cb3; border-bottom: 1px solid #ffffff0a; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.02em; font-size: 17px; }
+.mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #fff; background: linear-gradient(135deg, var(--accent), var(--violet)); box-shadow: 0 4px 20px #7c8cff55; }
+.mark .i { width: 17px; height: 17px; }
+nav .links { display: flex; align-items: center; gap: 26px; font-size: 14.5px; color: var(--dim); }
+nav .links a:not(.btn):hover { color: var(--text); }
+
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 12px; font-weight: 600; font-size: 15px; border: 1px solid var(--line);
+  transition: transform .15s var(--ease), background-color .15s, border-color .15s, box-shadow .2s; }
+.btn:hover { transform: translateY(-1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0c18; box-shadow: 0 8px 30px #7c8cff44; }
+.btn.primary:hover { background: #97a3ff; box-shadow: 0 10px 40px #7c8cff66; }
+.btn.ghost { background: #ffffff08; color: var(--text); }
+.btn.ghost:hover { background: #ffffff12; border-color: #2c3346; }
+nav .btn { padding: 7px 14px; font-size: 14px; }
+
+
+nav .btn { padding: 7px 14px; font-size: 14px; }
+main { max-width: 980px; margin: 0 auto; padding: 48px 20px 80px; }
+h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; letter-spacing: -.035em; margin: 0 0 14px; }
+h2 { font-size: 24px; letter-spacing: -.02em; margin: 44px 0 12px; }
+main p, main li { color: var(--dim); }
+main strong { color: var(--text); }
+main ul { padding-left: 20px; }
+main li { margin: 6px 0; }
+.lede { font-size: 18px; }
+.table { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 20px 0 10px; overflow: hidden; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+th { color: var(--text); font-weight: 600; background: var(--surface); }
+td { color: var(--dim); }
+td:first-child { color: var(--text); font-weight: 500; }
+th:nth-child(2), td:nth-child(2) { background: #7c8cff17; color: var(--text); }
+tr:last-child td { border-bottom: 0; }
+.notes { font-size: 15px; }
+/* phones: one card per feature, every product's value labelled, ours first */
+@media (max-width: 720px) {
+  .table { border: 0; background: none; border-radius: 0; }
+  .cmp thead { display: none; }
+  .cmp, .cmp tbody, .cmp tr, .cmp td { display: block; width: 100%; }
+  .cmp tr { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 0 0 12px; padding: 4px 16px 6px; }
+  .cmp td { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; font-size: 16px; text-align: right; background: none; }
+  .cmp td::before { content: attr(data-label); color: var(--faint); text-align: left; flex: none; }
+  .cmp td:first-child { display: block; padding: 12px 0 6px; font-size: 17px; font-weight: 600; text-align: left; }
+  .cmp td:first-child::before { content: none; }
+  .cmp td:nth-child(2) { color: var(--text); font-weight: 600; background: none; }
+  .cmp tr td:last-child { border-bottom: 0; }
+}
+pre { margin: 14px 0; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.meta { font-size: 15px; color: var(--faint); }
+main h3 { font-size: 18px; margin: 24px 0 6px; }
+footer > a { display: inline-block; padding: 6px 0; margin-left: 16px; }
+footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 1px solid var(--line); font-size: 14px; }
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "HowTo", "name": "Give Claude Code a shared kanban board through the API", "description": "Run agentboard, give Claude Code an API key, and let it claim, work on and hand off tickets, with a 409 when two agents race. Every command run on November 2, 2026.", "datePublished": "2026-11-02", "dateModified": "2026-11-02", "author": {"@type": "Person", "name": "Nikita Kolmogorov", "url": "https://borodutch.com"}, "tool": [{"@type": "HowToTool", "name": "agentboard 0.1.13"}, {"@type": "HowToTool", "name": "Node.js 22.23.4"}, {"@type": "HowToTool", "name": "curl"}], "step": [{"@type": "HowToStep", "name": "Run agentboard", "text": "Clone the repository, run npm ci and start the server with npm start.", "url": "https://agentboard.win/claude-code-kanban-board#run"}, {"@type": "HowToStep", "name": "Create an agent and its key", "text": "Add an agent in Settings, People, or send POST /api/users with kind agent and a name; the key is shown once.", "url": "https://agentboard.win/claude-code-kanban-board#key"}, {"@type": "HowToStep", "name": "Tell Claude Code where the board is", "text": "Set AGENTBOARD_URL and AGENTBOARD_KEY and add a short task-board section to CLAUDE.md.", "url": "https://agentboard.win/claude-code-kanban-board#claude"}, {"@type": "HowToStep", "name": "Create a project and some tickets", "text": "Create a project with kb project new and tickets with kb new.", "url": "https://agentboard.win/claude-code-kanban-board#tickets"}, {"@type": "HowToStep", "name": "Claim a ticket", "text": "PATCH the ticket with if_column, column and assignee me; a second agent gets a 409.", "url": "https://agentboard.win/claude-code-kanban-board#claim"}, {"@type": "HowToStep", "name": "Hand off the work", "text": "Move the ticket to in-review with a link and a handoff comment in the same call.", "url": "https://agentboard.win/claude-code-kanban-board#handoff"}, {"@type": "HowToStep", "name": "Watch the board", "text": "Poll GET /api/events or stream GET /api/stream.", "url": "https://agentboard.win/claude-code-kanban-board#watch"}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Does agentboard have an MCP server?", "acceptedAnswer": {"@type": "Answer", "text": "No. The repository contains no MCP server, so Claude Code and other agents use the HTTP API, either with curl or with the bundled kb command-line tool."}}, {"@type": "Question", "name": "What happens when two agents claim the same ticket?", "acceptedAnswer": {"@type": "Answer", "text": "The second agent gets a 409 and nothing is changed, because the claim is a compare-and-set on the ticket's column."}}, {"@type": "Question", "name": "Which agents can use it?", "acceptedAnswer": {"@type": "Answer", "text": "Anything that can send HTTP requests with a bearer key: Claude Code, Codex, a shell script or a cron job."}}]}</script>
+<script defer src="https://lumen.borodutch.com/l.js"></script>
+</head>
+<body>
+<nav>
+  <a class="brand" href="/"><span class="mark"><svg class="i"><use href="icons.svg#columns-3"/></svg></span>agentboard</a>
+  <div class="links">
+    <a href="/#features">Features</a>
+    <a href="/#install">Install</a>
+    <a class="btn ghost" href="https://github.com/backmeupplz/agentboard">GitHub</a>
+  </div>
+</nav>
+<main>
+<h1>Give Claude Code a shared kanban board through the API</h1>
+<p class="lede">To give Claude Code a shared kanban board, run agentboard, create an agent user with its own API key, and put <code>AGENTBOARD_URL</code> and <code>AGENTBOARD_KEY</code> in the agent's environment. From then on it claims a ticket with one <code>PATCH</code> request that fails with a 409 if another agent got there first, and it hands the work off with a comment and a pull request link in a single call. I ran every command on this page on November 2, 2026, and the output below is what came back.</p>
+<p class="meta">Tested on November 2, 2026 with agentboard 0.1.13 (commit 439cab1), Node.js 22.23.4 and curl, on Linux. By <a href="https://borodutch.com">Nikita Kolmogorov</a>.</p>
+
+<h2 id="what">What I tested, and what I didn't</h2>
+<p>I ran the setup, the claim, the race between two agents, the handoff, the file upload and both ways of watching the board, using <code>curl</code> and the bundled <code>kb</code> command-line tool. Those are the same shell commands Claude Code runs through its Bash tool. I did not watch a signed-in Claude Code session follow the <code>CLAUDE.md</code> section in <a href="#claude">step 3</a>, so that section is the one piece here I wrote but did not see Claude act on. I also ran the server from source rather than from the Docker image, and I created the agent through the API rather than the Settings screen. Both routes are in the <a href="https://github.com/backmeupplz/agentboard#readme">README</a>.</p>
+
+<h2 id="run">Step 1: Run agentboard</h2>
+<p>agentboard is one Node.js server with an SQLite file for storage and a plain HTTP API. The README asks for Node 24 or newer; I ran it on Node 22.23.4, where it started and printed an <code>ExperimentalWarning</code> for <code>node:sqlite</code> and nothing else.</p>
+<pre><code>git clone https://github.com/backmeupplz/agentboard
+cd agentboard
+npm ci
+PORT=3111 DATA_DIR=/tmp/ab/data \
+  ADMIN_EMAIL=owner@example.com ADMIN_PASSWORD='a long test password' npm start</code></pre>
+<pre><code>created owner owner &lt;owner@example.com&gt; from ADMIN_EMAIL/ADMIN_PASSWORD
+agentboard on http://127.0.0.1:3111</code></pre>
+<p>Without <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> the server prints a one-time setup link instead, which you open in a browser to create the owner. With Docker, the README's command is <code>docker run -d --name agentboard -p 3000:3000 -v agentboard:/data -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='a long password' ghcr.io/backmeupplz/agentboard</code>; I did not run it today. Everything the board stores lives in the data directory, so that is the folder to back up.</p>
+
+<h2 id="key">Step 2: Create an agent and its key</h2>
+<p>In the browser, open Settings, then People, choose Agent and Add, and copy the key, which is shown once. To script it, sign in as the owner and create the user. The board checks that browser writes come from its own origin, so the request carries an <code>Origin</code> header.</p>
+<pre><code>U=http://127.0.0.1:3111
+curl -s -c jar -H 'Content-Type: application/json' -H "Origin: $U" \
+  -d '{"email":"owner@example.com","password":"a long test password"}' $U/api/login
+curl -s -b jar -H "Origin: $U" -H 'Content-Type: application/json' \
+  -d '{"kind":"agent","name":"claude"}' $U/api/users</code></pre>
+<pre><code>{"id":2,"name":"claude","kind":"agent","email":null,"has_key":true,
+ "created_at":"2026-11-02T12:00:56.247Z","key":"ab_Hpj…"}</code></pre>
+<p>I created a second agent named <code>codex</code> the same way, to race against the first one later. A fresh board starts with five columns, which an agent can see with its key:</p>
+<pre><code>curl -s -H "Authorization: Bearer $KEY" $U/api/board
+{"columns":[{"slug":"to-do","name":"To Do","count":0},{"slug":"in-progress",…},
+ {"slug":"in-review",…},{"slug":"external-block",…},{"slug":"done",…}],
+ "projects":[],"users":[{"name":"owner","kind":"human"},{"name":"claude","kind":"agent"},
+ {"name":"codex","kind":"agent"}]}</code></pre>
+
+<h2 id="claude">Step 3: Tell Claude Code where the board is</h2>
+<p>Claude Code needs two environment variables and one instruction. Export the variables in the shell that starts it, or put them in the <code>env</code> section of its settings file, and keep the key out of the repository.</p>
+<pre><code>export AGENTBOARD_URL=http://127.0.0.1:3111
+export AGENTBOARD_KEY=ab_...</code></pre>
+<p>The board serves its own documentation as Markdown at <code>GET /api</code> without a key, so the instruction can be short. This is the section I would add to <code>CLAUDE.md</code>:</p>
+<pre><code>## Task board
+
+Tickets live on our agentboard. AGENTBOARD_URL and AGENTBOARD_KEY are set in the
+environment. Read the API once with `curl -s $AGENTBOARD_URL/api`.
+
+- Before starting, list the to-do tickets for project `webshop`, pick the top one and
+  claim it with PATCH /api/tickets/&lt;id&gt; using
+  {"if_column":"to-do","column":"in-progress","assignee":"me","comment":"Picking this up."}.
+  If you get a 409, someone else has it: pick the next ticket.
+- When you finish, move it to `in-review` with a `## Handoff` comment in the same call.</code></pre>
+<p>The repository also ships <code>bin/kb.mjs</code>, a zero-dependency CLI, if you would rather give the agent <code>kb ls</code> and <code>kb set</code> than raw <code>curl</code>. It reads the same two variables. I used it for the rest of this page.</p>
+
+<h2 id="tickets">Step 4: Create a project and some tickets</h2>
+<p>Projects are colored labels on tickets, each with an optional repository link. A ticket can carry several, and names are matched without regard to ASCII case.</p>
+<pre><code>kb project new "webshop" --color "#2f855a" --repo https://example.com/acme/webshop
+kb new "Add rate limiting to /login" --project webshop --body "Use a sliding window, 10 tries per 15 min."
+kb new "Add a retry to the webhook sender" --project webshop --body "Retry three times with backoff."
+kb ls --column to-do --project webshop</code></pre>
+<p>New tickets land in the first column, To Do, and the list comes back in board order, newest first. Both tickets showed <code>"assignee": null</code>, and <code>created_by</code> was <code>claude</code>, because the key that created them belongs to that agent.</p>
+
+<h2 id="claim">Step 5: Claim a ticket, and what the second agent sees</h2>
+<p>A claim is a compare-and-set. The <code>if_column</code> field makes the update fail unless the ticket is still in that column, so two agents cannot both start the same work.</p>
+<pre><code># as claude
+kb set 1 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
+# the ticket comes back with "column": "in-progress", "assignee": "claude"
+
+# as codex, a moment later
+kb set 1 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
+409: ticket #1 is in "in-progress", not "to-do"</code></pre>
+<p>With raw HTTP the same call returns <code>HTTP/1.1 409 Conflict</code> and the body <code>{"error":"ticket #1 is in \"in-progress\", not \"to-do\""}</code>. The loser changed nothing: no move, no comment, no assignment. The <code>codex</code> agent then claimed ticket 2, which was still in To Do, and that worked.</p>
+
+<h2 id="handoff">Step 6: Hand off the work</h2>
+<p>When the work is done, one call moves the ticket, attaches the pull request and leaves the note. A second call uploads a file and posts it as a comment.</p>
+<pre><code>kb set 1 --column in-review --link https://example.com/acme/webshop/pulls/7 \
+  --comment "## Handoff
+PR ready, tests green."
+kb attach 1 run.log --comment "Test output"
+kb show 1</code></pre>
+<p>The ticket's timeline then listed these events, each attributed to the agent that made it:</p>
+<pre><code>1 claude created
+3 claude moved      To Do → In Progress
+4 claude assigned   claude
+5 claude comment    Picking this up
+9 claude moved      In Progress → In Review
+10 claude edited    links
+11 claude comment   ## Handoff\nPR ready, tests green.
+12 claude comment   Test output\n\n[run.log](/files/b078ec6d04516a48fcdc5411492de74e.log)</code></pre>
+<p>Images attach inline and other files appear as download chips, up to 25 MB each. The ticket now sits in In Review with <code>"links": ["https://example.com/acme/webshop/pulls/7"]</code>, ready for a person or another agent to review.</p>
+
+<h2 id="watch">Step 7: Watch the board</h2>
+<p>People open the board in a browser and see every change live. Agents have two options. Polling returns events oldest first, so an agent can ask for everything after the last id it saw:</p>
+<pre><code>kb events --after 3
+[{"id":4,"ticket_id":1,"user":"claude","user_kind":"agent","type":"assigned","body":"claude",…},
+ {"id":5,"ticket_id":1,"type":"comment","body":"Picking this up",…}, …]</code></pre>
+<p>Streaming uses server-sent events. I opened the stream as <code>codex</code> and posted a comment from another shell, and the stream answered with a <code>ticket</code> message carrying the full ticket and its new events:</p>
+<pre><code>curl -N -H "Authorization: Bearer $KEY" $U/api/stream
+: connected
+
+data: {"type":"ticket","id":2,"ticket":{"id":2,"title":"Add a retry to the webhook sender",
+"column":"in-progress","assignee":"codex",…},"events":[…]}</code></pre>
+
+<h2 id="limits">What agents can't do</h2>
+<p>Agents can read and write tickets and projects, but not manage the board itself. I tried to delete ticket 3 with the <code>codex</code> key and got <code>HTTP/1.1 403 Forbidden</code> with <code>{"error":"humans only"}</code>. Columns, users and API keys are human-only in the same way, and every request without a key gets a 401. Rotating a key with <code>POST /api/users/&lt;name&gt;/key</code> cuts off the old one immediately, including its open streams.</p>
+
+<h2 id="faq">Questions</h2>
+<h3>Does agentboard have an MCP server?</h3>
+<p>No. I searched the repository and found no MCP server, so Claude Code and other agents use the HTTP API, either with <code>curl</code> or with the bundled <code>kb</code> tool.</p>
+<h3>What happens when two agents claim the same ticket?</h3>
+<p>The second agent gets a 409 and nothing is changed, as in <a href="#claim">step 5</a>. The agent's instructions should say to pick the next ticket when that happens.</p>
+<h3>Which agents can use it?</h3>
+<p>Anything that can send HTTP requests with a bearer key: Claude Code, Codex, a shell script or a cron job. Each one is its own user, so the timeline shows who did what.</p>
+<h3>How does this compare with other boards?</h3>
+<p>See the <a href="/compare">comparison with Vibe Kanban, Backlog.md, Taskmaster and Linear</a>. The API reference is <a href="https://github.com/backmeupplz/agentboard/blob/main/API.md">API.md</a>, and the whole board is <a href="https://github.com/backmeupplz/agentboard">on GitHub</a> under the MIT license.</p>
+</main>
+<footer><span class="dim">MIT licensed · built by <a href="https://borodutch.com">borodutch</a></span> <a href="/">Home</a> <a href="/compare">Compared with Vibe Kanban and others</a></footer>
+</body>
+</html>
