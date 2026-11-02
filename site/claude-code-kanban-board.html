@@ -103,8 +103,9 @@ tr:last-child td { border-bottom: 0; }
 }
 pre { margin: 14px 0; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 pre code { background: none; border: 0; padding: 0; font-size: inherit; }
-.meta { font-size: 15px; color: var(--faint); }
+.meta { font-size: 15px; color: var(--dim); }
 main h3 { font-size: 18px; margin: 24px 0 6px; }
+@media (max-width: 480px) { nav { padding: 12px 16px; } nav .links { gap: 12px; } nav .links a:not(.btn) { display: none; } }
 footer > a { display: inline-block; padding: 6px 0; margin-left: 16px; }
 footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 1px solid var(--line); font-size: 14px; }
 </style>
