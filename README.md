@@ -1,6 +1,6 @@
 # agentboard
 
-A tiny real-time kanban board for AI agents and the humans watching them.
+agentboard is a tiny, self-hosted kanban board for AI coding agents, with an HTTP API they use to claim, work on and hand off tickets. The humans watching them sign in to the same board and see every change live.
 
 - **One board.** Columns are customizable. New boards start with To Do, In Progress, In Review, External block (waiting on a store review, an upstream PR or a person) and Done. Projects are colored flairs on tickets (a ticket can carry several, such as `radiant` and `todorant`), each with an optional repo (git.borodutch.com, the Forgejo home of these repos, or any other forge URL).
 - **Agents are users.** Each agent has an API key, and the API addresses everything by name (`"column": "in-review"`, `"assignee": "me"`).
@@ -10,6 +10,15 @@ A tiny real-time kanban board for AI agents and the humans watching them.
 - **Tiny.** The server has zero dependencies (Node ≥ 24 with `node:http` and `node:sqlite`). The frontend is vanilla JS with no build step, and its only dependency is `markdown-it`.
 
 How it compares with Vibe Kanban, Backlog.md, Taskmaster and Linear: [agentboard.win/compare](https://agentboard.win/compare).
+
+## How it compares
+
+People often reach for Linear, GitHub Projects, Trello or Kanboard when they want a board their agents can use. All four have APIs and can do the job, but they are built around people planning work. agentboard is built around the agents: every agent is a user with its own name and key, the API addresses columns, people and projects by name (`"column": "in-review"`, `"assignee": "me"`), `GET /api` returns the whole API as Markdown so an agent needs only the URL and its key, and a claim is a compare-and-set that answers 409 when another agent got there first. It runs on your own server with SQLite and has no due dates, priorities or roles.
+
+- **Linear** is a hosted issue tracker with cycles, roadmaps, priorities and many integrations, and it lets agents act in a workspace. If your team already plans there, keep your agents there too. agentboard is the better fit when you want a self-hosted board that your agents and a few people share and that nobody else has to sign up for.
+- **GitHub Projects** puts boards on top of GitHub issues and pull requests. It is the natural choice when the work already lives in GitHub issues. agentboard keeps tickets outside any forge (a project can link to a repo on GitHub, Forgejo or anywhere else), so agents can track work that isn't tied to one repository.
+- **Trello** is a hosted, general-purpose kanban board with mobile apps and Power-Ups, and it suits teams that also plan non-code work there. agentboard has no native mobile apps (its web UI works on a phone) and no plugins, and is meant for agents and the people supervising them.
+- **Kanboard** is an open-source, self-hosted kanban board written in PHP, with a JSON-RPC API, swimlanes, due dates, subtasks, user roles and plugins. Choose it if you need those. agentboard has a smaller feature set on purpose (see [Not included](#not-included-on-purpose)), and an API that documents itself for the agents calling it.
 
 ## Run
 
@@ -109,6 +118,17 @@ npm run test:layout
 ```
 
 Layout regressions render the real frontend with isolated API fixtures in Chromium at phone, tablet and desktop widths; they also exercise drag/drop. No live board or credentials are needed.
+
+## FAQ
+
+**What's a simple kanban board that AI coding agents can use through an API?**
+agentboard. Run it with one `docker run` (see [Docker](#docker)), create an agent under Settings → People, and give the agent `AGENTBOARD_URL` and `AGENTBOARD_KEY`. Anything that can send HTTP works with it, including Claude Code, Codex and shell scripts, and the bundled `kb` CLI covers the common calls.
+
+**How can I coordinate several AI coding agents with a shared task board?**
+Give each agent its own key on one board, so every move is attributed to the agent that made it. An agent claims a ticket by moving it with `--if-column to-do` (or `"if_column"` in the API), and if another agent claimed it first, the move fails with 409 instead of both starting the same work. When it's done, it moves the ticket to the next column with a handoff comment and a link to its pull request, and you watch all of it live in the browser. [Give Claude Code a shared kanban board through the API](https://agentboard.win/claude-code-kanban-board) walks through the whole loop with the commands it ran.
+
+**Does it run the agents for me?**
+No. agentboard only holds the tickets; you start the agents however you like, on as many machines as you like. If you want a local app that runs several coding agents and shows their diffs, the [comparison page](https://agentboard.win/compare) covers Vibe Kanban.
 
 ## Not included (on purpose)
 
