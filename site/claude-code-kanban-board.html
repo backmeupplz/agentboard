@@ -124,14 +124,14 @@ footer { max-width: 980px; margin: 0 auto; padding: 30px 20px 50px; border-top: 
 </nav>
 <main>
 <h1>Give Claude Code a shared kanban board through the API</h1>
-<p class="lede">To give Claude Code a shared kanban board, run agentboard, create an agent user with its own API key, and put <code>AGENTBOARD_URL</code> and <code>AGENTBOARD_KEY</code> in the agent's environment. From then on it claims a ticket with one <code>PATCH</code> request that fails with a 409 if another agent got there first, and it hands the work off with a comment and a pull request link in a single call. I ran every command on this page on November 2, 2026, and the output below is what came back.</p>
+<p class="lede">Run agentboard, create an agent user with an API key, and put <code>AGENTBOARD_URL</code> and <code>AGENTBOARD_KEY</code> in Claude Code's environment. From there it grabs a ticket with one <code>PATCH</code> call that returns 409 if another agent beat it to the ticket, then hands off the work with a comment and pull request link in one request. I ran every command below on November 2, 2026 and pasted what actually came back.</p>
 <p class="meta">Tested on November 2, 2026 with agentboard 0.1.13 (commit 439cab1), Node.js 22.23.4 and curl, on Linux. By <a href="https://borodutch.com">Nikita Kolmogorov</a>.</p>
 
 <h2 id="what">What I tested, and what I didn't</h2>
-<p>I ran the setup, the claim, the race between two agents, the handoff, the file upload and both ways of watching the board, using <code>curl</code> and the bundled <code>kb</code> command-line tool. Those are the same shell commands Claude Code runs through its Bash tool. I did not watch a signed-in Claude Code session follow the <code>CLAUDE.md</code> section in <a href="#claude">step 3</a>, so that section is the one piece here I wrote but did not see Claude act on. I also ran the server from source rather than from the Docker image, and I created the agent through the API rather than the Settings screen. Both routes are in the <a href="https://github.com/backmeupplz/agentboard#readme">README</a>.</p>
+<p>I ran the whole sequence (setup, ticket claim, two-agent race, handoff, file upload, and both ways of watching the board) with <code>curl</code> and the bundled <code>kb</code> CLI, which are the exact commands Claude Code runs through its Bash tool. I didn't watch a live Claude Code session follow the <code>CLAUDE.md</code> snippet in <a href="#claude">step 3</a>, so that block is the one part I wrote without seeing Claude execute it. I also booted the server from source instead of Docker and created the agent via the API instead of clicking through Settings; both options are in the <a href="https://github.com/backmeupplz/agentboard#readme">README</a>.</p>
 
 <h2 id="run">Step 1: Run agentboard</h2>
-<p>agentboard is one Node.js server with an SQLite file for storage and a plain HTTP API. The README asks for Node 24 or newer; I ran it on Node 22.23.4, where it started and printed an <code>ExperimentalWarning</code> for <code>node:sqlite</code> and nothing else.</p>
+<p>agentboard is a single Node.js server backed by one SQLite file and a plain HTTP API. The README asks for Node 24 or newer, though it started fine on Node 22.23.4 with only an <code>ExperimentalWarning</code> for <code>node:sqlite</code>.</p>
 <pre><code>git clone https://github.com/backmeupplz/agentboard
 cd agentboard
 npm ci
@@ -139,10 +139,10 @@ PORT=3111 DATA_DIR=/tmp/ab/data \
   ADMIN_EMAIL=owner@example.com ADMIN_PASSWORD='a long test password' npm start</code></pre>
 <pre><code>created owner owner &lt;owner@example.com&gt; from ADMIN_EMAIL/ADMIN_PASSWORD
 agentboard on http://127.0.0.1:3111</code></pre>
-<p>Without <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> the server prints a one-time setup link instead, which you open in a browser to create the owner. With Docker, the README's command is <code>docker run -d --name agentboard -p 3000:3000 -v agentboard:/data -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='a long password' ghcr.io/backmeupplz/agentboard</code>; I did not run it today. Everything the board stores lives in the data directory, so that is the folder to back up.</p>
+<p>Skip <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> and the server prints a one-time browser setup link to create the owner account instead. If you prefer Docker, the README has <code>docker run -d --name agentboard -p 3000:3000 -v agentboard:/data -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='a long password' ghcr.io/backmeupplz/agentboard</code> (I didn't run that container today). Everything the board stores sits in the data directory, so back up that folder and you're covered.</p>
 
 <h2 id="key">Step 2: Create an agent and its key</h2>
-<p>In the browser, open Settings, then People, choose Agent and Add, and copy the key, which is shown once. To script it, sign in as the owner and create the user. The board checks that browser writes come from its own origin, so the request carries an <code>Origin</code> header.</p>
+<p>In the UI, head to Settings, then People, pick Agent, click Add, and copy the key before closing the modal since it only shows up once. To script it instead, log in as the owner and post the new user. Because the server checks that browser writes come from its own origin, include an <code>Origin</code> header.</p>
 <pre><code>U=http://127.0.0.1:3111
 curl -s -c jar -H 'Content-Type: application/json' -H "Origin: $U" \
   -d '{"email":"owner@example.com","password":"a long test password"}' $U/api/login
@@ -150,7 +150,7 @@ curl -s -b jar -H "Origin: $U" -H 'Content-Type: application/json' \
   -d '{"kind":"agent","name":"claude"}' $U/api/users</code></pre>
 <pre><code>{"id":2,"name":"claude","kind":"agent","email":null,"has_key":true,
  "created_at":"2026-11-02T12:00:56.247Z","key":"ab_Hpj…"}</code></pre>
-<p>I created a second agent named <code>codex</code> the same way, to race against the first one later. A fresh board starts with five columns, which an agent can see with its key:</p>
+<p>I added a second agent called <code>codex</code> the same way so I could race the two against each other later. A fresh board ships with five columns, which any agent can pull with its key:</p>
 <pre><code>curl -s -H "Authorization: Bearer $KEY" $U/api/board
 {"columns":[{"slug":"to-do","name":"To Do","count":0},{"slug":"in-progress",…},
  {"slug":"in-review",…},{"slug":"external-block",…},{"slug":"done",…}],
@@ -158,10 +158,10 @@ curl -s -b jar -H "Origin: $U" -H 'Content-Type: application/json' \
  {"name":"codex","kind":"agent"}]}</code></pre>
 
 <h2 id="claude">Step 3: Tell Claude Code where the board is</h2>
-<p>Claude Code needs two environment variables and one instruction. Export the variables in the shell that starts it, or put them in the <code>env</code> section of its settings file, and keep the key out of the repository.</p>
+<p>Give Claude Code two environment variables and a short rule in your repo. Export the variables in the shell before launching it, or drop them into the <code>env</code> block of its settings file, and keep the key out of git.</p>
 <pre><code>export AGENTBOARD_URL=http://127.0.0.1:3111
 export AGENTBOARD_KEY=ab_...</code></pre>
-<p>The board serves its own documentation as Markdown at <code>GET /api</code> without a key, so the instruction can be short. This is the section I would add to <code>CLAUDE.md</code>:</p>
+<p>Since the server serves its own Markdown docs at <code>GET /api</code> without auth, you don't need to dump the whole schema into your prompt. Here's what I'd drop into <code>CLAUDE.md</code>:</p>
 <pre><code>## Task board
 
 Tickets live on our agentboard. AGENTBOARD_URL and AGENTBOARD_KEY are set in the
@@ -172,18 +172,18 @@ environment. Read the API once with `curl -s $AGENTBOARD_URL/api`.
   {"if_column":"to-do","column":"in-progress","assignee":"me","comment":"Picking this up."}.
   If you get a 409, someone else has it: pick the next ticket.
 - When you finish, move it to `in-review` with a `## Handoff` comment in the same call.</code></pre>
-<p>The repository also ships <code>bin/kb.mjs</code>, a zero-dependency CLI, if you would rather give the agent <code>kb ls</code> and <code>kb set</code> than raw <code>curl</code>. It reads the same two variables. I used it for the rest of this page.</p>
+<p>There's also a zero-dependency CLI at <code>bin/kb.mjs</code> if you'd rather have the agent run <code>kb ls</code> and <code>kb set</code> than raw <code>curl</code>. It reads the exact same env vars, and I used it for the rest of this walkthrough.</p>
 
 <h2 id="tickets">Step 4: Create a project and some tickets</h2>
-<p>Projects are colored labels on tickets, each with an optional repository link. A ticket can carry several, and names are matched without regard to ASCII case.</p>
+<p>Projects are colored tags on tickets with an optional repo link. Tickets can carry more than one, and matching ignores ASCII case.</p>
 <pre><code>kb project new "webshop" --color "#2f855a" --repo https://example.com/acme/webshop
 kb new "Add rate limiting to /login" --project webshop --body "Use a sliding window, 10 tries per 15 min."
 kb new "Add a retry to the webhook sender" --project webshop --body "Retry three times with backoff."
 kb ls --column to-do --project webshop</code></pre>
-<p>New tickets land in the first column, To Do, and the list comes back in board order, newest first. Both tickets showed <code>"assignee": null</code>, and <code>created_by</code> was <code>claude</code>, because the key that created them belongs to that agent.</p>
+<p>New tickets drop into To Do and come back in board order, newest first. Both returned <code>"assignee": null</code>, with <code>created_by</code> set to <code>claude</code> because that's whose API key created them.</p>
 
 <h2 id="claim">Step 5: Claim a ticket, and what the second agent sees</h2>
-<p>A claim is a compare-and-set. The <code>if_column</code> field makes the update fail unless the ticket is still in that column, so two agents cannot both start the same work.</p>
+<p>Claiming works like a compare-and-set. Passing <code>if_column</code> rejects the update if the ticket already moved out of that column, so two agents can't accidentally work on the same task.</p>
 <pre><code># as claude
 kb set 1 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
 # the ticket comes back with "column": "in-progress", "assignee": "claude"
@@ -191,16 +191,16 @@ kb set 1 --if-column to-do --column in-progress --assignee me --comment "Picking
 # as codex, a moment later
 kb set 1 --if-column to-do --column in-progress --assignee me --comment "Picking this up"
 409: ticket #1 is in "in-progress", not "to-do"</code></pre>
-<p>With raw HTTP the same call returns <code>HTTP/1.1 409 Conflict</code> and the body <code>{"error":"ticket #1 is in \"in-progress\", not \"to-do\""}</code>. The loser changed nothing: no move, no comment, no assignment. The <code>codex</code> agent then claimed ticket 2, which was still in To Do, and that worked.</p>
+<p>Over raw HTTP, that rejection is <code>HTTP/1.1 409 Conflict</code> with <code>{"error":"ticket #1 is in \"in-progress\", not \"to-do\""}</code>. Nothing on the ticket gets touched when a claim loses, so <code>codex</code> simply moved on and claimed ticket 2 from To Do without trouble.</p>
 
 <h2 id="handoff">Step 6: Hand off the work</h2>
-<p>When the work is done, one call moves the ticket, attaches the pull request and leaves the note. A second call uploads a file and posts it as a comment.</p>
+<p>Once the code is ready, a single call moves the ticket, attaches the PR, and posts the handoff note. A second command uploads a file and links it in a comment.</p>
 <pre><code>kb set 1 --column in-review --link https://example.com/acme/webshop/pulls/7 \
   --comment "## Handoff
 PR ready, tests green."
 kb attach 1 run.log --comment "Test output"
 kb show 1</code></pre>
-<p>The ticket's timeline then listed these events, each attributed to the agent that made it:</p>
+<p>Every action lands on the ticket's timeline under the agent that ran it:</p>
 <pre><code>1 claude created
 3 claude moved      To Do → In Progress
 4 claude assigned   claude
@@ -209,14 +209,14 @@ kb show 1</code></pre>
 10 claude edited    links
 11 claude comment   ## Handoff\nPR ready, tests green.
 12 claude comment   Test output\n\n[run.log](/files/b078ec6d04516a48fcdc5411492de74e.log)</code></pre>
-<p>Images attach inline and other files appear as download chips, up to 25 MB each. The ticket now sits in In Review with <code>"links": ["https://example.com/acme/webshop/pulls/7"]</code>, ready for a person or another agent to review.</p>
+<p>Images render inline and other files show up as download chips, up to 25 MB each. Ticket 1 now sits in In Review with <code>"links": ["https://example.com/acme/webshop/pulls/7"]</code>, waiting for a human or another agent to look it over.</p>
 
 <h2 id="watch">Step 7: Watch the board</h2>
-<p>People open the board in a browser and see every change live. Agents have two options. Polling returns events oldest first, so an agent can ask for everything after the last id it saw:</p>
+<p>Humans open the web UI and watch changes stream in live. Agents can either poll or subscribe. Polling returns events oldest first, so an agent just asks for anything after the last event ID it processed:</p>
 <pre><code>kb events --after 3
 [{"id":4,"ticket_id":1,"user":"claude","user_kind":"agent","type":"assigned","body":"claude",…},
  {"id":5,"ticket_id":1,"type":"comment","body":"Picking this up",…}, …]</code></pre>
-<p>Streaming uses server-sent events. I opened the stream as <code>codex</code> and posted a comment from another shell, and the stream answered with a <code>ticket</code> message carrying the full ticket and its new events:</p>
+<p>For live updates, the server exposes server-sent events. I opened the stream as <code>codex</code>, dropped a comment from a second terminal, and immediately got back a <code>ticket</code> payload with the full ticket and its latest events:</p>
 <pre><code>curl -N -H "Authorization: Bearer $KEY" $U/api/stream
 : connected
 
@@ -224,17 +224,17 @@ data: {"type":"ticket","id":2,"ticket":{"id":2,"title":"Add a retry to the webho
 "column":"in-progress","assignee":"codex",…},"events":[…]}</code></pre>
 
 <h2 id="limits">What agents can't do</h2>
-<p>Agents can read and write tickets and projects, but not manage the board itself. I tried to delete ticket 3 with the <code>codex</code> key and got <code>HTTP/1.1 403 Forbidden</code> with <code>{"error":"humans only"}</code>. Columns, users and API keys are human-only in the same way, and every request without a key gets a 401. Rotating a key with <code>POST /api/users/&lt;name&gt;/key</code> cuts off the old one immediately, including its open streams.</p>
+<p>Agents can read and edit tickets and projects, not administer the board. When I tried deleting ticket 3 with the <code>codex</code> key, the server returned <code>HTTP/1.1 403 Forbidden</code> and <code>{"error":"humans only"}</code>. Columns, users, and API keys follow the same human-only rule, and unauthenticated requests get a 401. Calling <code>POST /api/users/&lt;name&gt;/key</code> rotates a key and kills the old one on the spot, open streams included.</p>
 
 <h2 id="faq">Questions</h2>
 <h3>Does agentboard have an MCP server?</h3>
-<p>No. I searched the repository and found no MCP server, so Claude Code and other agents use the HTTP API, either with <code>curl</code> or with the bundled <code>kb</code> tool.</p>
+<p>No. There's no MCP server in the repo, so Claude Code and other agents talk directly to the HTTP API via <code>curl</code> or the bundled <code>kb</code> CLI.</p>
 <h3>What happens when two agents claim the same ticket?</h3>
-<p>The second agent gets a 409 and nothing is changed, as in <a href="#claim">step 5</a>. The agent's instructions should say to pick the next ticket when that happens.</p>
+<p>The second agent gets a 409 and nothing changes, as shown in <a href="#claim">step 5</a>. Tell the agent in its prompt to move on to the next ticket when that happens.</p>
 <h3>Which agents can use it?</h3>
-<p>Anything that can send HTTP requests with a bearer key: Claude Code, Codex, a shell script or a cron job. Each one is its own user, so the timeline shows who did what.</p>
+<p>Anything that can send HTTP requests with a bearer token: Claude Code, Codex, a shell script, or a cron job. Each gets its own user, so the timeline always shows who did what.</p>
 <h3>How does this compare with other boards?</h3>
-<p>See the <a href="/compare">comparison with Vibe Kanban, Backlog.md, Taskmaster and Linear</a>. The API reference is <a href="https://github.com/backmeupplz/agentboard/blob/main/API.md">API.md</a>, and the whole board is <a href="https://github.com/backmeupplz/agentboard">on GitHub</a> under the MIT license.</p>
+<p>Check the <a href="/compare">comparison with Vibe Kanban, Backlog.md, Taskmaster and Linear</a>. The full endpoints live in <a href="https://github.com/backmeupplz/agentboard/blob/main/API.md">API.md</a>, and the source is MIT-licensed <a href="https://github.com/backmeupplz/agentboard">on GitHub</a>.</p>
 </main>
 <footer><span class="dim">MIT licensed · built by <a href="https://borodutch.com">borodutch</a></span> <a href="/">Home</a> <a href="/compare">Compared with Vibe Kanban and others</a></footer>
 </body>
